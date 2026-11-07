@@ -22,7 +22,15 @@ type Vals = Record<string, unknown>;
 // need no UI changes.
 function FieldInput({ f, value, hasSecret, onChange }: { f: ConnectorField; value: unknown; hasSecret: boolean; onChange: (v: unknown) => void }) {
   const id = `conn-${f.key}`;
-  if (f.type === "boolean") return <Switch id={id} checked={value === true} onChange={onChange} label={f.label} />;
+  if (f.type === "boolean")
+    return (
+      <div>
+        <label htmlFor={id} className="flex cursor-pointer items-center gap-2 text-sm">
+          <Switch id={id} checked={value === true} onChange={onChange} label={f.label} /> {f.label}
+        </label>
+        {f.help && <p className="mt-1 text-xs text-muted">{f.help}</p>}
+      </div>
+    );
   return (
     <Field label={f.label} htmlFor={id} hint={f.help}>
       <input
@@ -78,7 +86,9 @@ function ConnectorDialog({ types, initial, existing, onClose }: { types: Connect
         {spec?.fields.map((f) => (
           <FieldInput key={f.key} f={f} value={vals[f.key] ?? (f.type === "boolean" ? f.default : "")} hasSecret={!!initial?.has_secret[f.key]} onChange={(v) => setVals((x) => ({ ...x, [f.key]: v }))} />
         ))}
-        <Switch id="conn-enabled" checked={enabled} onChange={setEnabled} label="Enabled" />
+        <label htmlFor="conn-enabled" className="flex cursor-pointer items-center gap-2 text-sm">
+          <Switch id="conn-enabled" checked={enabled} onChange={setEnabled} label="Enabled" /> Enabled
+        </label>
       </div>
     </Dialog>
   );
