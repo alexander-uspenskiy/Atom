@@ -1,0 +1,139 @@
+"""Runtime-editable settings: defaults come from config.Settings, overrides live in the DB."""
+from __future__ import annotations
+
+from typing import Any
+
+from .config import Settings
+from .db import Database, jdump, jload
+
+TZ_HELP = "IANA timezone used for schedules created by the assistant, e.g. America/New_York."
+
+SCHEMA: list[dict[str, Any]] = [
+    # --- Model ---
+    {"key": "llm_base_url", "label": "LLM server URL", "group": "Model", "type": "text",
+     "help": "OpenAI-compatible endpoint (llama-server). Changing this reconnects immediately."},
+    {"key": "llm_model", "label": "Model name", "group": "Model", "type": "text",
+     "help": "Alias the server exposes (llama-server --alias)."},
+    {"key": "temperature", "label": "Temperature", "group": "Model", "type": "slider", "min": 0, "max": 1.5, "step": 0.05,
+     "help": "Used when thinking is off. Thinking mode always uses the model card's 1.0."},
+    {"key": "top_p", "label": "Top-p", "group": "Model", "type": "slider", "min": 0.1, "max": 1, "step": 0.01},
+    {"key": "top_k", "label": "Top-k", "group": "Model", "type": "number", "min": 0, "max": 200, "step": 1},
+    {"key": "presence_penalty", "label": "Presence penalty", "group": "Model", "type": "slider", "min": 0, "max": 2,
+     "step": 0.1, "help": "Keep at 0 for tool calls; higher values can corrupt exact refs and arguments."},
+    # --- Thinking ---
+    {"key": "agent_thinking", "label": "Agent thinking", "group": "Thinking", "type": "select",
+     "options": ["off", "auto", "on"],
+     "help": "off = never. auto = off, escalate to thinking when stuck. on = always think: far slower, and thinking "
+             "breaks the prompt cache when mixed with non-thinking steps."},
+    {"key": "agent_effort", "label": "Agent reasoning effort", "group": "Thinking", "type": "select",
+     "options": ["low", "medium", "xhigh"], "help": "How long the model thinks when thinking is used. xhigh can be very slow."},
+    {"key": "chat_thinking", "label": "Chat thinking", "group": "Thinking", "type": "boolean",
+     "help": "Default for new chat messages; can be toggled per message."},
+    {"key": "chat_effort", "label": "Chat reasoning effort", "group": "Thinking", "type": "select",
+     "options": ["low", "medium", "xhigh"]},
+    # --- Agent limits ---
+    {"key": "max_steps", "label": "Max steps per run", "group": "Agent limits", "type": "number", "min": 1, "max": 200, "step": 1},
+    {"key": "max_wall_s", "label": "Max seconds per run", "group": "Agent limits", "type": "number", "min": 30, "max": 7200, "step": 30},
+    {"key": "compact_at_tokens", "label": "Compact history at (tokens)", "group": "Agent limits", "type": "number",
+     "min": 4000, "max": 30000, "step": 500,
+     "help": "When the prompt grows past this, history is summarised (one slow re-read of the prompt)."},
+    {"key": "max_observation_tokens", "label": "Max observation tokens", "group": "Agent limits", "type": "number",
+     "min": 300, "max": 6000, "step": 100, "help": "Cap on what each action returns to the model. Prefill is slow, keep small."},
+    {"key": "max_read_tokens", "label": "read_text chunk (tokens)", "group": "Agent limits", "type": "number",
+     "min": 500, "max": 8000, "step": 250},
+    {"key": "max_concurrent_runs", "label": "Concurrent runs", "group": "Agent limits", "type": "number",
+     "min": 1, "max": 3, "step": 1, "help": "Runs share one model; more than 1 slows each of them and shares a cache slot."},
+    # --- Browser ---
+    {"key": "headless", "label": "Headless browser", "group": "Browser", "type": "boolean",
+     "help": "Turn off to watch the browser window while runs execute."},
+    {"key": "live_screenshots", "label": "Live screenshots", "group": "Browser", "type": "boolean",
+     "help": "Capture a small JPEG after each action for the live run view (~0.2 s each)."},
+    # --- Assistant & memory ---
+    {"key": "auto_approve_assistant_actions", "label": "Auto-approve assistant actions", "group": "Assistant & memory",
+     "type": "boolean", "help": "OFF (recommended): the assistant only proposes schedules, agents, skills and memories; "
+                                "you approve them. ON: they are created immediately."},
+    {"key": "memory_inject_k", "label": "Memories injected per run", "group": "Assistant & memory", "type": "number",
+     "min": 0, "max": 12, "step": 1, "help": "Top relevant memories added to each run's first message (pinned ones always are)."},
+    {"key": "timezone", "label": "Timezone", "group": "Assistant & memory", "type": "text", "help": TZ_HELP},
+]
+KEYS = {s["key"] for s in SCHEMA}
+SELECTS = {s["key"]: s["options"] for s in SCHEMA if s["type"] == "select"}
+
+
+class SettingsError(ValueError):
+    pass
+
+
+def _coerce(spec: dict, value: Any) -> Any:
+    t = spec["type"]
+    if t == "boolean":
+        if isinstance(value, bool):
+            return value
+        if str(value).lower() in ("true", "1", "yes", "on"):
+            return True
+        if str(value).lower() in ("false", "0", "no", "off"):
+            return False
+        raise SettingsError(f"{spec['key']}: expected boolean")
+    if t in ("number", "slider"):
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            raise SettingsError(f"{spec['key']}: expected a number") from None
+        if "min" in spec and num < spec["min"] or "max" in spec and num > spec["max"]:
+            raise SettingsError(f"{spec['key']}: must be between {spec.get('min')} and {spec.get('max')}")
+        return int(num) if spec.get("step", 0) >= 1 and float(spec["step"]).is_integer() else num
+    if t == "select":
+        if value not in spec["options"]:
+            raise SettingsError(f"{spec['key']}: must be one of {spec['options']}")
+        return value
+    return str(value).strip()
+
+
+class SettingsStore:
+    def __init__(self, db: Database, base: Settings | None = None):
+        self.db = db
+        self.base = base or Settings()
+        self._effective: Settings | None = None
+        self._listeners: list = []
+
+    def on_change(self, fn) -> None:
+        self._listeners.append(fn)
+
+    def overrides(self) -> dict[str, Any]:
+        return {r["key"]: jload(r["value"]) for r in self.db.all("SELECT key, value FROM settings")}
+
+    def effective(self) -> Settings:
+        if self._effective is None:
+            ov = {k: v for k, v in self.overrides().items() if k in KEYS}
+            self._effective = self.base.model_copy(update=ov)
+        return self._effective
+
+    def defaults(self) -> dict[str, Any]:
+        return {k: getattr(self.base, k) for k in KEYS}
+
+    def values(self) -> dict[str, Any]:
+        eff = self.effective()
+        return {k: getattr(eff, k) for k in KEYS}
+
+    def update(self, values: dict[str, Any]) -> dict[str, Any]:
+        specs = {s["key"]: s for s in SCHEMA}
+        unknown = [k for k in values if k not in specs]
+        if unknown:
+            raise SettingsError(f"unknown setting(s): {', '.join(unknown)}")
+        clean = {k: _coerce(specs[k], v) for k, v in values.items()}
+        if "timezone" in clean:
+            from zoneinfo import ZoneInfo
+            try:
+                ZoneInfo(clean["timezone"])
+            except Exception:  # noqa: BLE001
+                raise SettingsError(f"timezone: unknown timezone '{clean['timezone']}'") from None
+        for k, v in clean.items():
+            self.db.execute("INSERT INTO settings (key, value) VALUES (?,?) "
+                            "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, jdump(v)))
+        self._effective = None
+        for fn in self._listeners:
+            fn(self.effective(), set(clean))
+        return self.values()
+
+    def payload(self) -> dict[str, Any]:
+        return {"values": self.values(), "defaults": self.defaults(), "schema": SCHEMA}

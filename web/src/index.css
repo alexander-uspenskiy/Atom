@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg: 246 247 249;
+  --surface: 255 255 255;
+  --surface2: 241 243 246;
+  --line: 222 226 232;
+  --fg: 17 24 39;
+  --muted: 100 110 125;
+  --accent: 79 70 229;
+  --accent-fg: 255 255 255;
+  --ok: 21 128 61;
+  --warn: 180 83 9;
+  --err: 185 28 28;
+  --info: 3 105 161;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: 11 13 17;
+    --surface: 19 22 28;
+    --surface2: 28 32 40;
+    --line: 42 48 59;
+    --fg: 230 233 238;
+    --muted: 148 157 171;
+    --accent: 129 140 248;
+    --accent-fg: 15 17 25;
+    --ok: 74 222 128;
+    --warn: 251 191 36;
+    --err: 248 113 113;
+    --info: 56 189 248;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: 11 13 17;
+  --surface: 19 22 28;
+  --surface2: 28 32 40;
+  --line: 42 48 59;
+  --fg: 230 233 238;
+  --muted: 148 157 171;
+  --accent: 129 140 248;
+  --accent-fg: 15 17 25;
+  --ok: 74 222 128;
+  --warn: 251 191 36;
+  --err: 248 113 113;
+  --info: 56 189 248;
+}
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-bg text-fg font-sans antialiased;
+  font-size: 13px;
+  line-height: 1.25rem;
+  overflow: hidden;
+}
+* { @apply border-line; }
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; border-radius: 4px; }
+::selection { background: rgb(var(--accent) / 0.25); }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+/* scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgb(var(--line)); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+
+.input {
+  @apply w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-fg placeholder:text-muted/70
+    transition-colors hover:border-muted/50 disabled:opacity-60;
+}
+.input:focus { outline: none; border-color: rgb(var(--accent)); box-shadow: 0 0 0 2px rgb(var(--accent) / 0.25); }
+.label { @apply mb-1 block text-xs font-medium text-muted; }
+.mono { @apply font-mono text-xs; }
+
+/* markdown */
+.md { @apply text-sm leading-relaxed break-words; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { @apply my-2; }
+.md h1, .md h2, .md h3, .md h4 { @apply mt-4 mb-2 font-semibold; }
+.md h1 { @apply text-lg; } .md h2 { @apply text-base; } .md h3 { @apply text-sm; }
+.md ul { @apply my-2 list-disc pl-5; } .md ol { @apply my-2 list-decimal pl-5; }
+.md li { @apply my-0.5; }
+.md a { @apply text-accent underline underline-offset-2; }
+.md blockquote { @apply my-2 border-l-2 border-line pl-3 text-muted; }
+.md hr { @apply my-3; }
+.md table { @apply my-2 w-full border-collapse text-xs; }
+.md th, .md td { @apply border border-line px-2 py-1 text-left; }
+.md th { @apply bg-surface2; }
+.md :not(pre) > code { @apply rounded bg-surface2 px-1 py-0.5 font-mono text-[0.85em]; }
+
+.caret::after { content: "▍"; @apply animate-blink text-accent; }
