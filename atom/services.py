@@ -68,11 +68,13 @@ class Services:
     async def startup(self, *, scheduler: bool = True) -> None:
         self.agents.ensure_default()
         await self.refresh_mcp()
+        self.connectors.attach(self)            # start listeners (e.g. the Telegram bot)
         await self.run_manager.start()
         if scheduler:
             self.scheduler.start()
 
     async def shutdown(self) -> None:
+        await self.connectors.stop_background()
         self.scheduler.shutdown()
         await self.mcp.shutdown()
         await self.run_manager.shutdown()

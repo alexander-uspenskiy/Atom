@@ -41,8 +41,17 @@ completes the OAuth flow (PKCE, loopback redirect to the dashboard's own address
 a Google app password. All connector secrets (client secret, app password, refresh token) are kept in the system
 keychain, never in the database.
 
+**Telegram** (chat with Atom from your phone): in Telegram message @BotFather, send `/newbot`, name it "Atom" and pick a
+username ending in `bot`. In Settings → Connectors add a Telegram connector with the token (kept in the keychain). The bot
+long-polls Telegram, so nothing is exposed to the internet. Only user IDs listed under "Allowed user IDs" can use it:
+save it empty, message the bot once, and it replies with your ID; then add the ID. Messages go to the dashboard assistant
+(one conversation per user, visible on the Chat page; `/new` starts a fresh one). Proposals (schedules, agents, ...) arrive
+with Approve / Reject buttons. With "Let agents message me" on, agents get `telegram_<name>_send` to notify you from
+scheduled runs. Private chats only.
+
 To add a connector type, subclass `Connector` in `atom/connectors/`, declare its `fields` (and `oauth` if it signs in
-through the browser) and `build_tools`, and `register()` it; the UI form is generated from the field schema.
+through the browser) and `build_tools`, and `register()` it; the UI form is generated from the field schema. Connectors that listen for events (like Telegram) set
+`background = True` and implement `run(name, cfg, svc)`; the manager runs it while the connector is enabled and restarts it on config changes.
 
 ## MCP servers
 

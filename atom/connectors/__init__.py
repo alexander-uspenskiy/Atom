@@ -7,6 +7,7 @@ MCP servers are managed separately (atom/mcp.py); connectors are for first-party
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from typing import Any
 
@@ -30,8 +31,16 @@ class Connector:
     # token is kept in the keychain and build_tools receives cfg["token_provider"] (callable -> access token).
     oauth: dict[str, Any] | None = None
 
+    # Connectors that listen for things (e.g. a chat bot) set `background = True` and implement `run`. The manager runs
+    # it as a task while the connector is enabled and ready, and restarts it when the config changes.
+    background: bool = False
+
     def validate(self, cfg: dict[str, Any]) -> None:
         """Raise Invalid for a bad config (called on save)."""
+
+    async def run(self, name: str, cfg: dict[str, Any], svc: Any) -> None:
+        """Long-running listener (only when `background`). Runs until cancelled; raise to mark the connector as failed."""
+        raise NotImplementedError
 
     def build_tools(self, name: str, cfg: dict[str, Any]) -> dict[str, ToolSpec]:
         raise NotImplementedError
@@ -63,6 +72,9 @@ class ConnectorManager:
         self.status: dict[str, dict[str, Any]] = {}
         self.flows = OAuthFlows()
         self._resolved: dict[str, dict[str, Any]] = {}      # name -> config incl. secrets (memory only)
+        self._svc: Any = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._bg: dict[str, tuple[str, asyncio.Task]] = {}  # name -> (config fingerprint, listener task)
         self._migrate_plaintext_secrets()
         self.reload()
 
@@ -182,6 +194,68 @@ class ConnectorManager:
                 tools.update(built)
                 status[name] = {"state": "ready", "error": None, "tool_names": list(built)}
         self.tools, self.status, self._resolved = tools, status, resolved
+        self._sync_background()
+
+    # ------------------------------------------------------------------ background listeners
+    def attach(self, svc: Any) -> None:
+        """Give listeners access to the services and start them. Call from the running event loop."""
+        self._svc, self._loop = svc, asyncio.get_running_loop()
+        self._sync_background()
+
+    async def stop_background(self) -> None:
+        tasks = [t for _, t in self._bg.values()]
+        self._bg.clear()
+        self._svc = None
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _sync_background(self) -> None:
+        if self._svc is None or self._loop is None:
+            return
+        try:
+            on_loop = asyncio.get_running_loop() is self._loop
+        except RuntimeError:
+            on_loop = False
+        if on_loop:
+            self._sync_background_now()
+        else:
+            self._loop.call_soon_threadsafe(self._sync_background_now)
+
+    def _sync_background_now(self) -> None:
+        if self._svc is None:
+            return
+        want: dict[str, tuple[str, Connector, dict]] = {}
+        for r in self._rows():
+            c = REGISTRY.get(r["type"])
+            name = r["name"]
+            if c is None or not c.background or self.status.get(name, {}).get("state") != "ready":
+                continue
+            cfg = self._resolved.get(name, {})
+            fp = hashlib.sha256(jdump({k: v for k, v in cfg.items() if k != "token_provider"}).encode()).hexdigest()
+            want[name] = (fp, c, cfg)
+        old: dict[str, asyncio.Task] = {}
+        for name in list(self._bg):
+            fp, task = self._bg[name]
+            if name in want and want[name][0] == fp and not task.done():
+                continue                                  # unchanged and still running
+            task.cancel()
+            old[name] = self._bg.pop(name)[1]
+        for name, (fp, c, cfg) in want.items():
+            if name not in self._bg:
+                self._bg[name] = (fp, asyncio.create_task(self._supervise(name, c, cfg, old.get(name))))
+
+    async def _supervise(self, name: str, c: Connector, cfg: dict, previous: asyncio.Task | None) -> None:
+        if previous is not None:                     # let the old listener release its resources first
+            await asyncio.gather(previous, return_exceptions=True)
+        try:
+            await c.run(name, cfg, self._svc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            st = self.status.get(name, {})
+            self.status[name] = {"state": "error", "error": str(e) or type(e).__name__,
+                                 "tool_names": st.get("tool_names", [])}
 
     async def test(self, name: str) -> dict[str, Any]:
         r = self.db.one("SELECT * FROM connectors WHERE name=?", (name,))
@@ -228,4 +302,4 @@ class ConnectorManager:
         self.reload()
 
 
-from . import gmail  # noqa: E402,F401  (registers itself)
+from . import gmail, telegram  # noqa: E402,F401  (each registers itself)
