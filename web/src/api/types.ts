@@ -7,7 +7,7 @@ export type Effort = "inherit" | "low" | "medium" | "xhigh";
 export interface LlmSlot { id: number; busy: boolean; n_ctx?: number; role?: string }
 export interface Status {
   version?: string;
-  llm?: { healthy?: boolean; base_url?: string; model?: string; slots?: LlmSlot[] };
+  llm?: { healthy?: boolean; vision?: boolean; base_url?: string; model?: string; slots?: LlmSlot[] };
   runs?: { running?: string[]; queued?: number; max_concurrent?: number };
   scheduler?: { running?: boolean; jobs?: number };
   pending_actions?: number;
@@ -44,6 +44,7 @@ export interface RunSummary {
   prompt_tokens?: number; cached_tokens?: number; processed_tokens?: number; completion_tokens?: number;
   llm_seconds?: number; tool_seconds?: number; wall_seconds?: number;
   thinking?: string | null; effort?: string | null; current_url?: string | null; last_screenshot?: number | null;
+  images?: string[];
 }
 export interface Step {
   idx: number; kind: "llm" | "tool" | "compact" | "note" | string; name?: string | null;
@@ -127,11 +128,12 @@ export interface MessageStats {
 export interface Message {
   id: string; role: "user" | "assistant" | "tool"; content?: string | null; reasoning?: string | null;
   tool_calls?: ToolCallInfo[] | null; tool_call_id?: string | null; action_id?: string | null;
-  run_id?: string | null; stats?: MessageStats | null; created_at?: number;
+  run_id?: string | null; stats?: MessageStats | null; images?: string[]; created_at?: number;
 }
 export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number }
 export interface Conversation { id: string; title?: string | null; messages: Message[] }
-export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh" }
+export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[] }
+export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string }
 
 export type ChatEvent =
   | { type: "message_start"; message_id?: string }

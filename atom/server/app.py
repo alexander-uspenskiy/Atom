@@ -148,9 +148,15 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             slots = await asyncio.wait_for(svc.llm.slots(), timeout=2.5) if healthy else []
         except Exception:  # noqa: BLE001
             healthy, slots = False, []
+        vision = False
+        if healthy and hasattr(svc.llm, "vision"):
+            try:
+                vision = await asyncio.wait_for(svc.llm.vision(), timeout=2.5)
+            except Exception:  # noqa: BLE001
+                vision = False
         roles = {eff.agent_slot: "agent", eff.extract_slot: "extract", eff.chat_slot: "chat"}
         return {"version": VERSION,
-                "llm": {"healthy": healthy, "base_url": eff.llm_base_url, "model": eff.llm_model,
+                "llm": {"healthy": healthy, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,
                         "slots": [{**s, "role": roles.get(s["id"], "other")} for s in slots]},
                 "runs": {"running": svc.run_manager.running_ids(), "queued": svc.run_manager.queued_count(),
                          "max_concurrent": eff.max_concurrent_runs},
@@ -328,8 +334,12 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         if not task:
             raise Invalid("task is required")
         agent = svc.agents.get(agent_id)
+        images = svc.uploads.validate(body.get("images"))
+        if images and not await svc.llm.vision():
+            raise Invalid("The model server has no vision projector loaded (start llama-server with --mmproj), "
+                          "so it cannot read images.")
         run = svc.run_manager.enqueue(task, agent, trigger="manual", start_url=body.get("start_url") or None,
-                                      overrides=body.get("overrides") or {})
+                                      overrides=body.get("overrides") or {}, images=images)
         return {"run_id": run["id"]}
 
     # ------------------------------------------------------------------ runs
@@ -466,6 +476,19 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def reject_action(request: Request, aid: str):
         return await svc_of(request).executor.reject(aid)
 
+    # ------------------------------------------------------------------ image uploads
+    @app.post("/api/uploads", status_code=201)
+    async def upload_image(request: Request, body: dict = Body(...)):
+        """JSON upload: {"data_url": "data:image/png;base64,...", "name": "optional"} -> {id, mime, size, url}."""
+        info = svc_of(request).uploads.save_data_url(body.get("data_url") or "", str(body.get("name") or ""))
+        return {**info, "url": f"/api/uploads/{info['id']}"}
+
+    @app.get("/api/uploads/{uid}")
+    async def get_upload(request: Request, uid: str):
+        path = svc_of(request).uploads.path(uid)
+        mime = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}[path.suffix[1:]]
+        return FileResponse(path, media_type=mime, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
     # ------------------------------------------------------------------ chat
     @app.get("/api/conversations")
     async def list_conversations(request: Request):
@@ -493,13 +516,17 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def post_message(request: Request, cid: str, body: dict = Body(...)):
         svc = svc_of(request)
         content = (body.get("content") or "").strip()
-        if not content:
+        images = svc.uploads.validate(body.get("images"))
+        if not content and not images:
             raise Invalid("content is required")
+        if images and not await svc.llm.vision():
+            raise Invalid("The model server has no vision projector loaded (start llama-server with --mmproj), "
+                          "so it cannot read images.")
         if not svc.conversations.exists(cid):
             raise NotFound(f"conversation {cid} not found")
         if body.get("effort") not in (None, "low", "medium", "xhigh"):
             raise Invalid("effort must be low, medium or xhigh")
-        return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort")), request)
+        return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images), request)
 
     # ------------------------------------------------------------------ stats
     @app.get("/api/stats/summary")

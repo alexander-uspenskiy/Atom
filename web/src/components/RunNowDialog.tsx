@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { invalidate } from "../api/hooks";
+import { invalidate, useStatus } from "../api/hooks";
 import type { Agent, Effort, RunOverrides, Thinking } from "../api/types";
 import { errMsg } from "../lib/format";
+import { AttachButton, AttachmentStrip, imagesFromClipboard, useAttachments } from "./chat/Attachments";
 import { EFFORT_OPTS, OptionalNumber, THINKING_OPTS } from "./AgentForm";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
@@ -21,6 +22,8 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
   const [thinking, setThinking] = useState<Thinking>("inherit");
   const [effort, setEffort] = useState<Effort>("inherit");
   const [maxSteps, setMaxSteps] = useState<number | null>(null);
+  const attachments = useAttachments();
+  const visionOk = useStatus().data?.llm?.vision !== false;
 
   useEffect(() => {
     if (!agent) return;
@@ -29,6 +32,8 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
     setThinking("inherit");
     setEffort("inherit");
     setMaxSteps(null);
+    attachments.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent]);
 
   const run = useMutation({
@@ -37,7 +42,7 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
       if (thinking !== "inherit") overrides.thinking = thinking;
       if (effort !== "inherit") overrides.effort = effort;
       if (maxSteps !== null) overrides.max_steps = maxSteps;
-      return api.runAgent((agent as Agent).id, { task: task.trim(), start_url: url.trim() || null, overrides });
+      return api.runAgent((agent as Agent).id, { task: task.trim(), start_url: url.trim() || null, overrides, ...(attachments.ids.length ? { images: attachments.ids } : {}) });
     },
     onSuccess: (r) => {
       invalidate(qc, "runs", "status");
@@ -55,14 +60,28 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={run.isPending} disabled={!task.trim()} onClick={() => run.mutate()}>Start run</Button>
+          <Button variant="primary" loading={run.isPending} disabled={!task.trim() || attachments.busy} onClick={() => run.mutate()}>Start run</Button>
         </>
       }
     >
       <div className="space-y-3">
         <Field label="Task" htmlFor="rn-task">
-          <textarea id="rn-task" data-autofocus className="input h-28 resize-y" value={task} onChange={(e) => setTask(e.target.value)} placeholder="What should the agent do?" />
+          <textarea
+            id="rn-task" data-autofocus className="input h-28 resize-y" value={task} onChange={(e) => setTask(e.target.value)}
+            placeholder="What should the agent do?"
+            onPaste={(e) => {
+              const files = imagesFromClipboard(e);
+              if (files.length && visionOk) { e.preventDefault(); attachments.add(files); }
+            }}
+          />
         </Field>
+        <div>
+          <div className="flex items-center gap-2">
+            <AttachButton api={attachments} disabled={!visionOk} reason="The model server was started without a vision projector (--mmproj), so it can't read images." />
+            <span className="text-xs text-muted">The agent sees attached images along with the task (screenshots, documents, photos).</span>
+          </div>
+          <AttachmentStrip api={attachments} />
+        </div>
         <Field label="Start URL (optional)" htmlFor="rn-url"><input id="rn-url" className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" /></Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Thinking" htmlFor="rn-think"><Select id="rn-think" value={thinking} onChange={(e) => setThinking(e.target.value as Thinking)} options={[...THINKING_OPTS]} /></Field>

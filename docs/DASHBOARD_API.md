@@ -61,7 +61,7 @@ Keys: `llm_base_url`, `llm_model`, `temperature`, `top_p`, `top_k`, `presence_pe
 - `GET /api/agents` → `Agent[]`;  `POST /api/agents` (Agent without id/timestamps) → `Agent`
 - `GET|PUT|DELETE /api/agents/{id}` (default agent cannot be deleted → 409)
 - `GET /api/tools` → `[{"name": "click", "description": "...", "side_effect": false}]`
-- `POST /api/agents/{id}/run` body `{"task": "...", "start_url": null, "overrides": {"thinking": "on", "effort": "low", "max_steps": 10}}` → `{"run_id": "..."}` (HTTP 202)
+- `POST /api/agents/{id}/run` body `{"task": "...", "start_url": null, "overrides": {"thinking": "on", "effort": "low", "max_steps": 10}, "images": ["<upload id>"]}` → `{"run_id": "..."}` (HTTP 202). `images` is optional; the agent sees them with the task (422 if the model server has no vision projector). Run summaries include `images: [ids]`.
 
 ## Runs
 
@@ -171,7 +171,8 @@ Every event: `{"seq": 17, "ts": 0, "run_id": "...", "type": "...", ...}`.
   "created_at": 0 }
 ```
 - `GET /api/conversations` → `[{"id","title","updated_at","message_count"}]`; `POST /api/conversations` body `{"title": null}` → conversation; `GET /api/conversations/{id}` → `{"id","title","messages": Message[]}`; `DELETE`; `PUT` body `{"title"}` to rename.
-- `POST /api/conversations/{id}/messages` body `{"content": "...", "thinking": false, "effort": "low"}` → **SSE** stream (the response itself):
+- `POST /api/uploads` body `{"data_url": "data:image/png;base64,...", "name": "x.png"}` → `{id, mime, size, name, url}` (PNG/JPEG/GIF/WebP, max 12 MB, type sniffed from bytes). `GET /api/uploads/{id}` returns the image. Upload first, then pass the ids as `images` (max 6) to a chat message or agent run. `GET /api/status` has `llm.vision` (true when llama-server runs with `--mmproj`).
+- `POST /api/conversations/{id}/messages` body `{"content": "...", "thinking": false, "effort": "low", "images": ["<upload id>"]}` (`content` may be empty when images are given; messages carry `images: [ids]`) → **SSE** stream (the response itself):
   - `message_start` `{message_id}`
   - `token` `{channel: "content"|"reasoning", text}`
   - `tool_call` `{id, name, arguments}`  /  `tool_result` `{id, name, ok, result}`

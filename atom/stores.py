@@ -245,7 +245,8 @@ class RunStore:
                 "processed_tokens": r["processed_tokens"], "completion_tokens": r["completion_tokens"],
                 "llm_seconds": round(r["llm_seconds"] or 0, 2), "tool_seconds": round(r["tool_seconds"] or 0, 2),
                 "wall_seconds": round(wall, 2), "thinking": r["thinking"], "effort": r["effort"],
-                "current_url": r["current_url"], "last_screenshot": r["last_screenshot"]}
+                "current_url": r["current_url"], "last_screenshot": r["last_screenshot"],
+                "images": (jload(r["config_json"], None) or {}).get("images", [])}
 
     def create(self, run_id: str, task: str, *, agent: dict, trigger: str, schedule_id: str | None, config: dict,
                thinking: str, effort: str, run_dir: str) -> dict:
@@ -502,7 +503,7 @@ class ConversationStore:
         return {"id": r["id"], "role": r["role"], "content": r["content"] or "", "reasoning": r["reasoning"],
                 "tool_calls": jload(r["tool_calls"], None), "tool_call_id": r["tool_call_id"],
                 "action_id": r["action_id"], "run_id": r["run_id"], "stats": jload(r["stats"], None),
-                "created_at": r["created_at"]}
+                "images": jload(r["images"], []), "created_at": r["created_at"]}
 
     def get(self, cid: str) -> dict:
         c = self.db.one("SELECT * FROM conversations WHERE id=?", (cid,))
@@ -513,14 +514,14 @@ class ConversationStore:
 
     def append(self, cid: str, role: str, content: str = "", *, reasoning: str | None = None,
                tool_calls: list | None = None, tool_call_id: str | None = None, action_id: str | None = None,
-               run_id: str | None = None, stats: dict | None = None) -> dict:
+               run_id: str | None = None, stats: dict | None = None, images: list[str] | None = None) -> dict:
         seq = self.db.one("SELECT COALESCE(MAX(seq),0)+1 AS n FROM messages WHERE conversation_id=?", (cid,))["n"]
         mid, t = new_id(), now()
         self.db.execute(
             "INSERT INTO messages (id,conversation_id,seq,role,content,reasoning,tool_calls,tool_call_id,action_id,run_id,"
-            "stats,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "stats,images,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (mid, cid, seq, role, content, reasoning, None if tool_calls is None else jdump(tool_calls), tool_call_id,
-             action_id, run_id, None if stats is None else jdump(stats), t))
+             action_id, run_id, None if stats is None else jdump(stats), jdump(images) if images else None, t))
         self.db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (t, cid))
         return self._msg(self.db.one("SELECT * FROM messages WHERE id=?", (mid,)))
 

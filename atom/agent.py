@@ -60,6 +60,7 @@ class RunConfig:
     memory_scope: str = "global"    # none | global | agent
     trigger: str = "manual"
     schedule_id: str | None = None
+    images: list[str] = field(default_factory=list)     # upload ids shown to the model with the task
 
 
 @dataclass
@@ -89,7 +90,7 @@ ConsoleCb = Callable[[dict], None]
 class Agent:
     def __init__(self, settings: Settings, llm: LLM, runs: RunStore, bus: EventBus, *, skills: Any = None,
                  memory: MemoryStore | None = None, actions: Any = None, console: ConsoleCb | None = None,
-                 variables: Any = None):
+                 variables: Any = None, uploads: Any = None):
         self.s = settings
         self.llm = llm
         self.runs = runs
@@ -98,6 +99,7 @@ class Agent:
         self.memory = memory
         self.actions = actions
         self.variables = variables          # VariableStore | None
+        self.uploads = uploads              # UploadStore | None
         self.console = console
         self.all_tools: dict[str, ToolSpec] = build_tools()
 
@@ -204,8 +206,11 @@ class Agent:
             if first_obs:
                 user += f"\n\nCurrent page:\n{first_obs}"
             system_prompt = self._system_prompt(cfg, vs)
+            if cfg.images:
+                user += (f"\n\nThe user attached {len(cfg.images)} image(s) to this task; they are shown with this "
+                         "message. Use them as the task requires.")
             messages: list[dict] = [{"role": "system", "content": system_prompt},
-                                    {"role": "user", "content": user}]
+                                    {"role": "user", "content": self._user_content(user, cfg)}]
             base_user = user
             recent: list[tuple[str, str, str]] = []
             consecutive_errors = stuck_hits = no_tool_nudges = 0
@@ -357,7 +362,7 @@ class Agent:
 
                 # compaction: only when the prompt grows large (breaks the prefix cache once)
                 if res.prompt_tokens >= s.compact_at_tokens:
-                    messages = await self._compact(system_prompt, base_user, action_log, ctx, session)
+                    messages = await self._compact(system_prompt, base_user, action_log, ctx, session, cfg)
                     sidx += 1
                     self.runs.add_step(run_id, sidx, "compact", result=f"{len(action_log)} actions summarized")
                     self._emit(run_id, "compact", step=llm_n, summarized_actions=len(action_log))
@@ -393,8 +398,14 @@ class Agent:
                          tool_calls=calls_log, visited=visited, blocked=blocked, run_dir=run_dir)
 
     # ------------------------------------------------------------------
+    def _user_content(self, text: str, cfg: RunConfig) -> Any:
+        """Task message content: plain text, or text + the attached images when the run has any."""
+        if cfg.images and self.uploads is not None:
+            return self.uploads.content(text, cfg.images)
+        return text
+
     async def _compact(self, system_prompt: str, base_user: str, action_log: list[str], ctx: ToolContext,
-                       session: BrowserSession) -> list[dict]:
+                       session: BrowserSession, cfg: RunConfig) -> list[dict]:
         """Rebuild history as: system + task + progress summary + current page. One-time prefix-cache miss."""
         try:
             page = await session.snapshot(diff=False)
@@ -408,4 +419,4 @@ class Agent:
         summary.append("Current page:\n" + page)
         task_only = base_user.split("\n\nCurrent page:")[0]
         return [{"role": "system", "content": system_prompt},
-                {"role": "user", "content": task_only + "\n\n" + "\n\n".join(summary)}]
+                {"role": "user", "content": self._user_content(task_only + "\n\n" + "\n\n".join(summary), cfg)}]

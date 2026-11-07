@@ -50,15 +50,17 @@ class RunManager:
         run_id = new_run_id()
         row = self.runs.create(run_id, task, agent=cfg.agent, trigger=cfg.trigger, schedule_id=cfg.schedule_id,
                                config={"start_url": cfg.start_url, "allowed_domains": cfg.allowed_domains,
-                                       "max_steps": cfg.max_steps, "thinking": cfg.thinking, "effort": cfg.effort},
+                                       "max_steps": cfg.max_steps, "thinking": cfg.thinking, "effort": cfg.effort,
+                                       "images": cfg.images},
                                thinking=cfg.thinking, effort=cfg.effort, run_dir=str(s.runs_dir / run_id))
         self._cfg[run_id] = (task, cfg)
         return row
 
     # ---------- queueing ----------
     def enqueue(self, task: str, agent: dict, *, trigger: str = "manual", schedule_id: str | None = None,
-                start_url: str | None = None, overrides: dict | None = None) -> dict:
+                start_url: str | None = None, overrides: dict | None = None, images: list[str] | None = None) -> dict:
         cfg = self.resolve(agent, start_url=start_url, overrides=overrides, trigger=trigger, schedule_id=schedule_id)
+        cfg.images = list(images or [])
         row = self._create_row(task, cfg)
         self.queue.put_nowait(row["id"])
         self.bus.publish_run(row["id"], "run_status", status="queued")

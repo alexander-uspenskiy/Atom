@@ -83,6 +83,17 @@ class LLM:
         except httpx.HTTPError:
             return False
 
+    async def vision(self) -> bool:
+        """Whether llama-server was started with a vision projector (--mmproj). Cached once true."""
+        if getattr(self, "_vision", False):
+            return True
+        try:
+            r = await self._client.get(self._root() + "/props", timeout=3)
+            self._vision = bool((r.json().get("modalities") or {}).get("vision")) if r.status_code == 200 else False
+        except Exception:  # noqa: BLE001
+            self._vision = False
+        return self._vision
+
     async def slots(self) -> list[dict]:
         """Live slot info from llama-server (/slots). Empty if unavailable."""
         try:

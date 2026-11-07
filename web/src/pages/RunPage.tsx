@@ -17,6 +17,7 @@ import { ErrorState, Loading } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { NowPanel } from "../components/run/NowPanel";
 import { Timeline } from "../components/run/Timeline";
+import { ImageGrid } from "../components/chat/Attachments";
 import { cachedPct, errMsg, fmtDateTime, fmtDuration, fmtPct, fmtTokens, hostOf } from "../lib/format";
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -140,6 +141,12 @@ export default function RunPage() {
       }
     >
       <div className="mx-auto max-w-[1500px] space-y-3">
+        {run.images && run.images.length > 0 && (
+          <Card>
+            <CardHeader title={`Attached images (${run.images.length})`} icon={<ImageIcon className="h-3.5 w-3.5" />} />
+            <div className="p-2"><ImageGrid ids={run.images} size="sm" /></div>
+          </Card>
+        )}
         <Card className="flex flex-wrap divide-x divide-line">
           <Kpi label="Input tokens" value={fmtTokens(prompt)} />
           <Kpi label="Cached" value={fmtPct(cachedPct(cached, prompt))} sub={`${fmtTokens(cached)} tokens`} />

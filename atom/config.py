@@ -76,6 +76,10 @@ class Settings(BaseSettings):
         return self.data_dir / "runs"
 
     @property
+    def uploads_dir(self) -> Path:
+        return self.data_dir / "uploads"
+
+    @property
     def skills_dir(self) -> Path:
         return self.data_dir / "skills"
 

@@ -56,6 +56,9 @@ class FakeLLM:
     async def healthy(self) -> bool:
         return True
 
+    async def vision(self) -> bool:
+        return True
+
     async def slots(self) -> list[dict]:
         return [{"id": i, "busy": False, "n_ctx": 32768} for i in range(3)]
 

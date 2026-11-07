@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, MessagesSquare, Trash2 } from "lucide-react";
 import { api, streamChat } from "../api/client";
-import { qk, useActions, useConversations } from "../api/hooks";
+import { qk, useActions, useConversations, useStatus } from "../api/hooks";
 import type { Message, PendingAction } from "../api/types";
 import { emptyTurn, turnReducer, type ToolView } from "../lib/chatState";
 import { lsGet, lsSet } from "../lib/storage";
@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { AssistantView, type AsstView } from "../components/chat/AssistantView";
 import { Composer, type ChatEffort, type ChatPrefs } from "../components/chat/Composer";
+import { ImageGrid, useAttachments } from "../components/chat/Attachments";
 
 const PREFS_KEY = "atom-chat-prefs";
 function loadPrefs(): ChatPrefs {
@@ -112,6 +113,8 @@ export default function ChatPage() {
   const convQ = useQuery({ queryKey: qk.conversation(convId ?? ""), queryFn: () => api.conversation(convId as string), enabled: !!convId });
   const [turn, dispatch] = useReducer(turnReducer, emptyTurn);
   const [draft, setDraft] = useState("");
+  const attachments = useAttachments();
+  const visionOk = useStatus().data?.llm?.vision !== false;
   const [prefs, setPrefs] = useState<ChatPrefs>(loadPrefs);
   const [toDelete, setToDelete] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -126,9 +129,9 @@ export default function ChatPage() {
   };
 
   const send = useCallback(
-    async (text: string, forConv?: string) => {
+    async (text: string, forConv?: string, images: string[] = []) => {
       const content = text.trim();
-      if (!content || abortRef.current) return;
+      if ((!content && !images.length) || abortRef.current) return;
       let id = forConv ?? convId;
       try {
         if (!id) {
@@ -146,13 +149,14 @@ export default function ChatPage() {
       turnConv.current = id;
       stick.current = true;
       setDraft("");
+      attachments.clear();
       baseUsers.current = countUsers(qc.getQueryData<{ messages?: Message[] }>(qk.conversation(id))?.messages);
-      dispatch({ t: "start", user: content });
+      dispatch({ t: "start", user: content, images });
       let error: string | null = null;
       let gotEvent = false;
       let aborted = false;
       try {
-        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort }, (ev) => {
+        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort, ...(images.length ? { images } : {}) }, (ev) => {
           gotEvent = true;
           if (ev.type === "error") error = ev.detail ?? "The assistant returned an error.";
           dispatch({ t: "ev", ev });
@@ -182,7 +186,7 @@ export default function ChatPage() {
         if (!gotEvent) setDraft(content); // nothing was received: let the user retry
       }
     },
-    [convId, prefs, qc, setParams, toast],
+    [convId, prefs, qc, setParams, toast, attachments],
   );
 
   // Prefill / auto-send from router state or ?prompt=
@@ -314,11 +318,11 @@ export default function ChatPage() {
                 <EmptyState icon={MessagesSquare} title="Empty conversation" hint="Send a message to begin." />
               )}
               {views.map((x) =>
-                x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} /> : <AssistantView key={x.v.key} v={x.v} />,
+                x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} images={x.m.images} /> : <AssistantView key={x.v.key} v={x.v} />,
               )}
               {showTurn && (
                 <>
-                  {turn.user && !userPersisted && <UserBubble text={turn.user} />}
+                  {turn.user !== null && !userPersisted && <UserBubble text={turn.user} images={turn.userImages} />}
                   {turn.msgs.map((m, i) => (
                     <AssistantView
                       key={m.key}
@@ -338,12 +342,14 @@ export default function ChatPage() {
           <Composer
             value={draft}
             onChange={setDraft}
-            onSend={() => void send(draft)}
+            onSend={() => void send(draft, undefined, attachments.ids)}
             onStop={stop}
             streaming={turn.streaming}
             prefs={prefs}
             onPrefs={updatePrefs}
             autoFocusKey={convId}
+            attachments={attachments}
+            visionOk={visionOk}
           />
         </section>
       </div>
@@ -358,10 +364,13 @@ export default function ChatPage() {
   );
 }
 
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text, images }: { text: string; images?: string[] }) {
   return (
     <div className="flex justify-end" data-testid="user-msg">
-      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{text}</div>
+      <div className="flex max-w-[85%] flex-col items-end gap-1.5">
+        {images && images.length > 0 && <ImageGrid ids={images} className="justify-end" />}
+        {text && <div className="whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{text}</div>}
+      </div>
     </div>
   );
 }

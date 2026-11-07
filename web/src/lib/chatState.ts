@@ -5,11 +5,11 @@ export interface LiveMsg {
   key: string; reasoning: string; content: string; tools: ToolView[]; actions: PendingAction[];
   runIds: string[]; stats: MessageStats | null; ended: boolean;
 }
-export interface LiveTurn { user: string | null; msgs: LiveMsg[]; error: string | null; streaming: boolean; seq: number }
-export const emptyTurn: LiveTurn = { user: null, msgs: [], error: null, streaming: false, seq: 0 };
+export interface LiveTurn { user: string | null; userImages: string[]; msgs: LiveMsg[]; error: string | null; streaming: boolean; seq: number }
+export const emptyTurn: LiveTurn = { user: null, userImages: [], msgs: [], error: null, streaming: false, seq: 0 };
 
 export type TurnAction =
-  | { t: "start"; user: string }
+  | { t: "start"; user: string; images?: string[] }
   | { t: "ev"; ev: ChatEvent }
   | { t: "end"; error?: string | null }
   | { t: "clear" };
@@ -20,7 +20,7 @@ const isEmpty = (m: LiveMsg) => !m.content && !m.reasoning && !m.tools.length &&
 export function turnReducer(s: LiveTurn, a: TurnAction): LiveTurn {
   switch (a.t) {
     case "start":
-      return { user: a.user, msgs: [], error: null, streaming: true, seq: 0 };
+      return { user: a.user, userImages: a.images ?? [], msgs: [], error: null, streaming: true, seq: 0 };
     case "clear":
       return emptyTurn;
     case "end":
