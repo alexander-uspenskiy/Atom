@@ -108,6 +108,7 @@ class SchedulerService:
     def __init__(self, schedules: ScheduleStore, agents: AgentStore, bus: EventBus, settings_fn):
         self.schedules, self.agents, self.bus, self.settings_fn = schedules, agents, bus, settings_fn
         self.runs = None          # set by Services (RunManager)
+        self.uploads = None       # set by Services (UploadStore)
         self.sched: AsyncIOScheduler | None = None
 
     # ---------- lifecycle ----------
@@ -168,7 +169,8 @@ class SchedulerService:
     async def trigger_now(self, sid: str, trigger: str = "manual") -> dict:
         s = self.schedules.get(sid)
         agent = self.agents.get(s["agent_id"])
-        run = self.runs.enqueue(s["task"], agent, trigger=trigger, schedule_id=sid, start_url=s["start_url"])
+        run = self.runs.enqueue(s["task"], agent, trigger=trigger, schedule_id=sid, start_url=s["start_url"],
+                                images=s.get("images") or [])
         self.schedules.record_fire(sid, run["id"])
         return run
 
@@ -181,17 +183,23 @@ class SchedulerService:
             raise Invalid(f"agent '{ref}' not found")
         return a
 
+    def _images(self, ids: Any) -> list[str]:
+        return self.uploads.validate(ids) if self.uploads is not None else []
+
     def create(self, d: dict) -> dict:
         tz = d.get("timezone") or self.settings_fn().timezone
         agent = self._resolve_agent(d.get("agent_id") or d.get("agent"))
         trigger = normalize_trigger(d.get("trigger") or {}, tz)
-        s = self.schedules.create({**d, "agent_id": agent["id"], "trigger": trigger, "timezone": tz})
+        s = self.schedules.create({**d, "agent_id": agent["id"], "trigger": trigger, "timezone": tz,
+                                   "images": self._images(d.get("images"))})
         self.sync(s)
         return self.schedules.get(s["id"])
 
     def update(self, sid: str, d: dict) -> dict:
         cur = self.schedules.get(sid)
-        patch = {k: v for k, v in d.items() if k in ("name", "task", "start_url", "timezone", "enabled", "trigger", "agent_id", "agent")}
+        patch = {k: v for k, v in d.items() if k in ("name", "task", "start_url", "timezone", "enabled", "trigger", "agent_id", "agent", "images")}
+        if "images" in patch:
+            patch["images"] = self._images(patch["images"])
         if "agent" in patch:
             patch["agent_id"] = self._resolve_agent(patch.pop("agent"))["id"]
         elif "agent_id" in patch:

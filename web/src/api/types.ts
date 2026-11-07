@@ -93,11 +93,11 @@ export interface Schedule {
   start_url?: string | null; trigger: ScheduleTrigger; timezone?: string; enabled: boolean;
   next_run_at?: number | null; last_run_at?: number | null; last_run_id?: string | null;
   last_status?: RunStatus | null; run_count?: number; created_by?: "user" | "assistant" | string;
-  created_at?: number; updated_at?: number;
+  created_at?: number; updated_at?: number; images?: string[];
 }
 export interface ScheduleInput {
   name: string; agent_id: string | null; task: string; start_url?: string | null;
-  trigger: ScheduleTrigger; timezone: string; enabled: boolean;
+  trigger: ScheduleTrigger; timezone: string; enabled: boolean; images?: string[];
 }
 export interface SchedulePreview { next: string[]; description: string; error?: string | null }
 
@@ -133,7 +133,7 @@ export interface Message {
 export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number }
 export interface Conversation { id: string; title?: string | null; messages: Message[] }
 export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[] }
-export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string }
+export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string; kind: "image" | "document"; pages?: number; rows?: number; sheets?: number; chars?: number; scanned?: boolean }
 
 export type ChatEvent =
   | { type: "message_start"; message_id?: string }

@@ -5,6 +5,8 @@ const PASSTHROUGH_BYTES = 4 * 1024 * 1024;
 const PASSTHROUGH_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export const isImageFile = (f: File) => f.type.startsWith("image/");
+/** Documents the backend can read: PDF, Word, Excel, CSV/TSV, Markdown, plain text (browsers often report Markdown with an empty type). */
+export const isDocFile = (f: File) => /\.(pdf|docx|xlsx|csv|tsv|md|markdown|txt)$/i.test(f.name) || ["application/pdf", "text/markdown", "text/plain", "text/csv"].includes(f.type);
 
 function readAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

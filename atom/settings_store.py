@@ -48,6 +48,9 @@ SCHEMA: list[dict[str, Any]] = [
      "help": "Turn off to watch the browser window while runs execute."},
     {"key": "live_screenshots", "label": "Live screenshots", "group": "Browser", "type": "boolean",
      "help": "Capture a small JPEG after each action for the live run view (~0.2 s each)."},
+    {"key": "agent_vision", "label": "Agents can look at pages", "group": "Browser", "type": "boolean",
+     "help": "Adds a `look` tool that shows the model a screenshot of the page (needs the vision projector). "
+             "Page images are loaded for those runs, and each screenshot costs about 1-2k prompt tokens."},
     # --- Assistant & memory ---
     {"key": "auto_approve_assistant_actions", "label": "Auto-approve assistant actions", "group": "Assistant & memory",
      "type": "boolean", "help": "OFF (recommended): the assistant only proposes schedules, agents, skills and memories; "

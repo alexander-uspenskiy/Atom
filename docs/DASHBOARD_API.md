@@ -40,7 +40,7 @@ The UI MUST render the settings form generically from `schema` (grouped by `grou
 Keys: `llm_base_url`, `llm_model`, `temperature`, `top_p`, `top_k`, `presence_penalty`,
 `agent_thinking` (off|auto|on), `agent_effort` (low|medium|xhigh), `chat_thinking` (boolean),
 `chat_effort`, `max_steps`, `max_wall_s`, `compact_at_tokens`, `max_observation_tokens`, `max_read_tokens`,
-`headless`, `live_screenshots`, `max_concurrent_runs`, `auto_approve_assistant_actions`, `memory_inject_k`,
+`headless`, `live_screenshots`, `agent_vision`, `max_concurrent_runs`, `auto_approve_assistant_actions`, `memory_inject_k`,
 `timezone`.
 
 ### PUT /api/settings   body `{"values": {"temperature": 0.7}}` → same shape as GET. Unknown keys → 422.
@@ -117,7 +117,7 @@ Every event: `{"seq": 17, "ts": 0, "run_id": "...", "type": "...", ...}`.
 ```
 `trigger` is one of `{"type":"cron","expr":"m h dom mon dow"}`, `{"type":"interval","seconds":3600}`, `{"type":"once","at":"2026-11-07T08:00:00"}` (local time in `timezone`).
 
-- `GET /api/schedules` → `Schedule[]`; `POST /api/schedules` → `Schedule` (validates the trigger; 422 on bad cron)
+- `GET /api/schedules` → `Schedule[]`; `POST /api/schedules` → `Schedule` (validates the trigger; 422 on bad cron). Optional `images: [upload ids]` are attached to every run of the schedule (also on `PUT`; `[]` clears them)
 - `GET|PUT|DELETE /api/schedules/{id}`
 - `POST /api/schedules/{id}/run` → `{"run_id": "..."}` (run now, 202)
 - `POST /api/schedules/{id}/toggle` body `{"enabled": false}` → `Schedule`
@@ -171,7 +171,7 @@ Every event: `{"seq": 17, "ts": 0, "run_id": "...", "type": "...", ...}`.
   "created_at": 0 }
 ```
 - `GET /api/conversations` → `[{"id","title","updated_at","message_count"}]`; `POST /api/conversations` body `{"title": null}` → conversation; `GET /api/conversations/{id}` → `{"id","title","messages": Message[]}`; `DELETE`; `PUT` body `{"title"}` to rename.
-- `POST /api/uploads` body `{"data_url": "data:image/png;base64,...", "name": "x.png"}` → `{id, mime, size, name, url}` (PNG/JPEG/GIF/WebP, max 12 MB, type sniffed from bytes). `GET /api/uploads/{id}` returns the image. Upload first, then pass the ids as `images` (max 6) to a chat message or agent run. `GET /api/status` has `llm.vision` (true when llama-server runs with `--mmproj`).
+- `POST /api/uploads` → `{id, mime, size, name, kind, url, ...}`. Upload an image (PNG/JPEG/GIF/WebP, max 12 MB) or a document (PDF, Word `.docx`, Excel `.xlsx`, CSV/TSV, Markdown `.md`/`.markdown`, plain `.txt`, max 25 MB; no legacy `.doc`/`.xls`). Either JSON `{"data_url": "data:<type>;base64,...", "name": "x.png"}` or the raw file as the body with `?name=report.pdf` (preferred for documents). The type is sniffed from the bytes (text, CSV and TSV need a matching extension; PDF, DOCX and XLSX are detected from their content); `kind` is `"image"` or `"document"`; documents also report `chars`, `pages` (PDF), `rows` (CSV/TSV data rows; non-empty rows over all sheets for XLSX), `sheets` (XLSX), `scanned` (PDF with no text layer) and `truncated`. 422 for unsupported, empty, corrupt or password-protected files. `GET /api/uploads/{id}` returns the file; `GET /api/uploads/{id}/info` its metadata. Upload first, then pass the ids as `images` (max 6, images and documents mixed) to a chat message, agent run or schedule. Document text is extracted once at upload time and inlined into the prompt (about 24,000 characters per message in total; longer ones are truncated and the chat assistant can page through the rest with its `read_document` tool). A scanned PDF is shown to the model as page images (first 4 pages) and, like images, needs a vision projector. `GET /api/status` has `llm.vision` (true when llama-server runs with `--mmproj`).
 - `POST /api/conversations/{id}/messages` body `{"content": "...", "thinking": false, "effort": "low", "images": ["<upload id>"]}` (`content` may be empty when images are given; messages carry `images: [ids]`) → **SSE** stream (the response itself):
   - `message_start` `{message_id}`
   - `token` `{channel: "content"|"reasoning", text}`

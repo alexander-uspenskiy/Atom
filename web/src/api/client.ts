@@ -84,6 +84,13 @@ export const api = {
   variableDelete: (name: string) => req<void>("DELETE", `/variables/${encodeURIComponent(name)}`),
   mcpDelete: (name: string) => req<McpStatus>("DELETE", `/mcp/servers/${encodeURIComponent(name)}`),
   uploadImage: (dataUrl: string, name = "") => req<UploadInfo>("POST", "/uploads", { data_url: dataUrl, name }),
+  /** Raw-body upload (documents: PDF, Markdown, text) — avoids base64 inflation. */
+  uploadFile: async (file: File) => {
+    const res = await fetch(`/api/uploads${qs({ name: file.name })}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+    if (!res.ok) throw await errorFrom(res);
+    return (await res.json()) as UploadInfo;
+  },
+  uploadInfo: (id: string) => req<UploadInfo>("GET", `/uploads/${encodeURIComponent(id)}/info`),
   uploadUrl: (id: string) => `/api/uploads/${encodeURIComponent(id)}`,
   runAgent: (id: string, body: { task: string; start_url?: string | null; overrides?: RunOverrides; images?: string[] }) =>
     req<{ run_id: string }>("POST", `/agents/${encodeURIComponent(id)}/run`, body),

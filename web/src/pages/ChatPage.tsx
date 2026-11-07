@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquarePlus, MessagesSquare, Trash2 } from "lucide-react";
 import { api, streamChat } from "../api/client";
-import { qk, useActions, useConversations, useStatus } from "../api/hooks";
+import { qk, useActions, useConversations } from "../api/hooks";
 import type { Message, PendingAction } from "../api/types";
 import { emptyTurn, turnReducer, type ToolView } from "../lib/chatState";
 import { lsGet, lsSet } from "../lib/storage";
@@ -16,7 +16,7 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { AssistantView, type AsstView } from "../components/chat/AssistantView";
 import { Composer, type ChatEffort, type ChatPrefs } from "../components/chat/Composer";
-import { ImageGrid, useAttachments } from "../components/chat/Attachments";
+import { DropOverlay, ImageGrid, useAttachments, useDropImages } from "../components/chat/Attachments";
 
 const PREFS_KEY = "atom-chat-prefs";
 function loadPrefs(): ChatPrefs {
@@ -114,7 +114,7 @@ export default function ChatPage() {
   const [turn, dispatch] = useReducer(turnReducer, emptyTurn);
   const [draft, setDraft] = useState("");
   const attachments = useAttachments();
-  const visionOk = useStatus().data?.llm?.vision !== false;
+  const drop = useDropImages(attachments.add, true);
   const [prefs, setPrefs] = useState<ChatPrefs>(loadPrefs);
   const [toDelete, setToDelete] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -286,7 +286,8 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className="relative flex min-w-0 flex-1 flex-col" data-testid="chat-pane" {...drop.handlers}>
+          <DropOverlay show={drop.over} />
           <div
             ref={scroller}
             className="min-h-0 flex-1 overflow-y-auto"
@@ -349,7 +350,6 @@ export default function ChatPage() {
             onPrefs={updatePrefs}
             autoFocusKey={convId}
             attachments={attachments}
-            visionOk={visionOk}
           />
         </section>
       </div>

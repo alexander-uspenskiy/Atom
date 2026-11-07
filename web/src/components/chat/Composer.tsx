@@ -2,23 +2,21 @@ import { useEffect, useRef, type KeyboardEvent } from "react";
 import { Brain, Send, Square } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Segmented } from "../ui/Fields";
-import { cn } from "../../lib/cn";
-import { AttachButton, AttachmentStrip, imagesFromClipboard, useDropImages, type AttachmentsApi } from "./Attachments";
+import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi } from "./Attachments";
 import { Switch } from "../ui/Switch";
 
 export type ChatEffort = "low" | "medium" | "xhigh";
 export interface ChatPrefs { thinking: boolean; effort: ChatEffort }
 
 export function Composer({
-  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, visionOk = true,
+  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments,
 }: {
   value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; streaming: boolean;
   prefs: ChatPrefs; onPrefs: (p: ChatPrefs) => void; disabled?: boolean; autoFocusKey?: string | null;
-  attachments: AttachmentsApi; visionOk?: boolean;
+  attachments: AttachmentsApi;
 }) {
   const hasContent = !!value.trim() || attachments.ids.length > 0;
   const canSend = hasContent && !attachments.busy && !disabled;
-  const drop = useDropImages(attachments.add, visionOk && !disabled);
   const ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = ta.current;
@@ -35,14 +33,7 @@ export function Composer({
   };
   return (
     <div className="border-t border-line bg-surface p-3">
-      <div
-        className={cn(
-          "rounded-lg border border-line bg-bg focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25",
-          drop.over && "border-accent ring-2 ring-accent/40",
-        )}
-        data-testid="composer"
-        {...drop.handlers}
-      >
+      <div className="rounded-lg border border-line bg-bg focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25" data-testid="composer">
         <AttachmentStrip api={attachments} />
         <textarea
           ref={ta}
@@ -56,14 +47,14 @@ export function Composer({
           onKeyDown={onKey}
           onPaste={(e) => {
             const files = imagesFromClipboard(e);
-            if (files.length && visionOk) {
+            if (files.length) {
               e.preventDefault();
               attachments.add(files);
             }
           }}
         />
         <div className="flex flex-wrap items-center gap-3 border-t border-line/70 px-2 py-1.5">
-          <AttachButton api={attachments} disabled={!visionOk || disabled} reason="The model server was started without a vision projector (--mmproj), so it can't read images." />
+          <AttachButton api={attachments} disabled={disabled} />
           <label className="inline-flex items-center gap-1.5 text-xs text-muted" title="Thinking on = better reasoning but breaks the prompt cache and is slower">
             <Brain className="h-3.5 w-3.5" aria-hidden />
             Thinking

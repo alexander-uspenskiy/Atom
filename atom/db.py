@@ -113,6 +113,9 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(messages)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(schedules)")}
+        if "images" not in cols:
+            self.conn.execute("ALTER TABLE schedules ADD COLUMN images TEXT")
 
     def execute(self, sql: str, params: Iterable = ()) -> sqlite3.Cursor:
         with self.lock:

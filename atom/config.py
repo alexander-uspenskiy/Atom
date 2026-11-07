@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # --- Browser ---
     headless: bool = True
     live_screenshots: bool = True
+    agent_vision: bool = True        # give agents a `look` tool (page screenshot) when the model server has vision
     nav_timeout_ms: int = 30000
     action_timeout_ms: int = 8000
     block_resources: tuple[str, ...] = ("image", "media", "font")

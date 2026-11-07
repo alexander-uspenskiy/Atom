@@ -64,10 +64,14 @@ class Policy:
         return None
 
 
+LOOK_MAX_HEIGHT = 3000      # px; taller pages are cut off (the model downsamples big images anyway)
+
+
 class BrowserSession:
     def __init__(self, settings: Settings, policy: Policy | None = None, run_dir: Path | None = None,
-                 profile: Path | None = None):
+                 profile: Path | None = None, load_images: bool = False):
         self.s = settings
+        self.load_images = load_images      # let page images load (needed for useful screenshots)
         self.policy = policy or Policy()
         self.run_dir = run_dir
         self.profile = profile
@@ -124,7 +128,7 @@ class BrowserSession:
             host = urlparse(req.url).hostname or ""
             if host:
                 self.requested_hosts.add(host)
-            if req.resource_type in self.s.block_resources:
+            if req.resource_type in self.s.block_resources and not (self.load_images and req.resource_type == "image"):
                 return await route.abort()
             nav = req.is_navigation_request() and req.frame == self.page.main_frame if self.page else False
             reason = self.policy.check_url(req.url, navigation=nav)
@@ -343,6 +347,16 @@ class BrowserSession:
         path = self.run_dir / name
         await self._need_page().screenshot(path=str(path))
         return path
+
+    async def look(self, full_page: bool = False) -> bytes:
+        """JPEG of the visible viewport (or the whole page, capped at LOOK_MAX_HEIGHT px) for the model to look at."""
+        page = self._need_page()
+        if not full_page:
+            return await page.screenshot(type="jpeg", quality=75, timeout=10000)
+        size = await page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.scrollHeight]")
+        w, h = int(size[0]), int(size[1])
+        return await page.screenshot(type="jpeg", quality=75, timeout=15000, full_page=True,
+                                     clip={"x": 0, "y": 0, "width": max(1, w), "height": max(1, min(h, LOOK_MAX_HEIGHT))})
 
     async def shot(self, n: int) -> tuple[Path, str] | None:
         """Small JPEG of the current page for the live dashboard view. Returns (path, title)."""

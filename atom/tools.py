@@ -27,6 +27,7 @@ class ToolOutput:
     terminal: bool = False
     result: Any = None            # set by `done`
     success: bool = True
+    images: list[str] = field(default_factory=list)    # data URLs shown to the model right after the tool results
 
 
 @dataclass
@@ -210,6 +211,17 @@ async def t_web_search(ctx: ToolContext, a: dict) -> ToolOutput:
     return ToolOutput(_wrap("search_results", "\n".join(rows)) if rows else "No results.")
 
 
+async def t_look(ctx: ToolContext, a: dict) -> ToolOutput:
+    import base64
+    full = a.get("full_page", False)
+    if isinstance(full, str):
+        full = full.lower() == "true"
+    jpg = await ctx.session.look(bool(full))
+    url = f"data:image/jpeg;base64,{base64.b64encode(jpg).decode()}"
+    what = "whole page, cut off if very tall" if full else "visible viewport"
+    return ToolOutput(f"Screenshot of {ctx.session.url} ({what}) follows in the next message.", images=[url])
+
+
 async def t_note(ctx: ToolContext, a: dict) -> ToolOutput:
     ctx.notes.append(str(a["text"])[:500])
     return ToolOutput("Noted.")
@@ -286,6 +298,10 @@ def build_tools() -> dict[str, ToolSpec]:
                             "types (string|number|boolean); many=true returns a list of such records.",
                  {"instruction": S, "fields": {"type": "object"}, "many": {"type": "boolean"},
                   "offset": {"type": "integer"}}, ["instruction", "fields"], t_extract),
+        ToolSpec("look", "See a screenshot of the current page (layout, images, charts, visual state). Default is "
+                         "the visible viewport; full_page=true captures the whole page (small details get blurry). "
+                         "Costs ~1-2k tokens: prefer text tools when text is enough.",
+                 {"full_page": {"type": "boolean"}}, [], t_look),
         ToolSpec("web_search", "Search the web; returns titles, URLs and snippets.", {"query": S}, ["query"],
                  t_web_search),
         ToolSpec("note", "Save a short fact to your notepad; it is kept even when history is compacted.",

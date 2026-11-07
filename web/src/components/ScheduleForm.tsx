@@ -6,6 +6,7 @@ import type { Schedule, ScheduleInput, ScheduleTrigger } from "../api/types";
 import { CRON_PRESETS, localTimezone, timezones } from "../lib/schedule";
 import { errMsg, fmtDateTime } from "../lib/format";
 import { useQuery } from "@tanstack/react-query";
+import { AttachButton, AttachmentStrip, DropOverlay, imagesFromClipboard, useAttachments, useDropImages } from "./chat/Attachments";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
 import { Field } from "./ui/Fields";
@@ -43,6 +44,8 @@ export function ScheduleForm({ open, onClose, schedule }: { open: boolean; onClo
   const agents = useAgents();
   const tzs = useMemo(timezones, []);
   const edit = !!schedule;
+  const attachments = useAttachments();
+  const drop = useDropImages(attachments.add, true);
 
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -71,6 +74,8 @@ export function ScheduleForm({ open, onClose, schedule }: { open: boolean; onClo
     setIvN(iv.n);
     setIvUnit(iv.unit);
     setOnceAt(t?.type === "once" ? t.at.slice(0, 16) : "");
+    attachments.load(schedule?.images ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, schedule]);
 
   useEffect(() => {
@@ -106,10 +111,10 @@ export function ScheduleForm({ open, onClose, schedule }: { open: boolean; onClo
     onError: (e) => toast.error(errMsg(e)),
   });
 
-  const valid = name.trim() && task.trim() && trigger && agentId && !(preview.data && preview.data.error);
+  const valid = name.trim() && task.trim() && trigger && agentId && !(preview.data && preview.data.error) && !attachments.busy;
   const submit = () => {
     if (!valid || !trigger) return;
-    save.mutate({ name: name.trim(), agent_id: agentId, task: task.trim(), start_url: startUrl.trim() || null, trigger, timezone: tz, enabled });
+    save.mutate({ name: name.trim(), agent_id: agentId, task: task.trim(), start_url: startUrl.trim() || null, trigger, timezone: tz, enabled, images: attachments.ids });
   };
 
   return (
@@ -125,7 +130,8 @@ export function ScheduleForm({ open, onClose, schedule }: { open: boolean; onClo
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="relative space-y-3" data-testid="schedule-drop" {...drop.handlers}>
+        <DropOverlay show={drop.over} />
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name" htmlFor="sch-name"><input id="sch-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Morning HN digest" /></Field>
           <Field label="Agent" htmlFor="sch-agent">
@@ -133,8 +139,21 @@ export function ScheduleForm({ open, onClose, schedule }: { open: boolean; onClo
           </Field>
         </div>
         <Field label="Task" htmlFor="sch-task">
-          <textarea id="sch-task" className="input h-24 resize-y" value={task} onChange={(e) => setTask(e.target.value)} placeholder="Report the top 5 Hacker News stories" />
+          <textarea
+            id="sch-task" className="input h-24 resize-y" value={task} onChange={(e) => setTask(e.target.value)} placeholder="Report the top 5 Hacker News stories"
+            onPaste={(e) => {
+              const files = imagesFromClipboard(e);
+              if (files.length) { e.preventDefault(); attachments.add(files); }
+            }}
+          />
         </Field>
+        <div>
+          <div className="flex items-center gap-2">
+            <AttachButton api={attachments}  />
+            <span className="text-xs text-muted">Every run of this schedule gets these images with the task (reference screenshots, a document to compare against…).</span>
+          </div>
+          <AttachmentStrip api={attachments} />
+        </div>
         <Field label="Start URL (optional)" htmlFor="sch-url">
           <input id="sch-url" className="input" value={startUrl} onChange={(e) => setStartUrl(e.target.value)} placeholder="https://news.ycombinator.com" />
         </Field>

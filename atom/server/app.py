@@ -20,6 +20,7 @@ from ..scheduler import describe, normalize_trigger, preview
 from ..services import Services
 from ..settings_store import SettingsError
 from ..stores import Conflict, Invalid, NotFound
+from ..uploads import media_type
 from ..tools import build_tools
 from pydantic import BaseModel
 
@@ -335,9 +336,9 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             raise Invalid("task is required")
         agent = svc.agents.get(agent_id)
         images = svc.uploads.validate(body.get("images"))
-        if images and not await svc.llm.vision():
+        if svc.uploads.needs_vision(images) and not await svc.llm.vision():
             raise Invalid("The model server has no vision projector loaded (start llama-server with --mmproj), "
-                          "so it cannot read images.")
+                          "so it cannot read images or scanned PDFs.")
         run = svc.run_manager.enqueue(task, agent, trigger="manual", start_url=body.get("start_url") or None,
                                       overrides=body.get("overrides") or {}, images=images)
         return {"run_id": run["id"]}
@@ -478,16 +479,35 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
 
     # ------------------------------------------------------------------ image uploads
     @app.post("/api/uploads", status_code=201)
-    async def upload_image(request: Request, body: dict = Body(...)):
-        """JSON upload: {"data_url": "data:image/png;base64,...", "name": "optional"} -> {id, mime, size, url}."""
-        info = svc_of(request).uploads.save_data_url(body.get("data_url") or "", str(body.get("name") or ""))
+    async def upload_file(request: Request):
+        """Upload an image or document (PNG/JPEG/GIF/WebP, PDF, Markdown, text) -> {id, mime, size, name, kind, url, ...}.
+        Either JSON `{"data_url": "data:<type>;base64,...", "name": "x"}` or the raw file as the request body with
+        `?name=report.pdf` (cheaper for big files). The type is sniffed from the bytes, never taken from the client."""
+        uploads = svc_of(request).uploads
+        if request.headers.get("content-type", "").startswith("application/json"):
+            try:
+                body = await request.json()
+            except ValueError as e:
+                raise Invalid("invalid JSON body") from e
+            if not isinstance(body, dict):
+                raise Invalid("expected a JSON object")
+            data_url, name = body.get("data_url") or "", str(body.get("name") or "")
+            info = await asyncio.to_thread(uploads.save_data_url, data_url, name)
+        else:
+            info = await asyncio.to_thread(uploads.save, await request.body(), request.query_params.get("name", ""))
         return {**info, "url": f"/api/uploads/{info['id']}"}
+
+    @app.get("/api/uploads/{uid}/info")
+    async def upload_info(request: Request, uid: str):
+        info = svc_of(request).uploads.info(uid)
+        return {**info, "url": f"/api/uploads/{uid}"}
 
     @app.get("/api/uploads/{uid}")
     async def get_upload(request: Request, uid: str):
         path = svc_of(request).uploads.path(uid)
-        mime = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}[path.suffix[1:]]
-        return FileResponse(path, media_type=mime, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+        return FileResponse(path, media_type=media_type(path),
+                            headers={"Cache-Control": "public, max-age=31536000, immutable",
+                                     "X-Content-Type-Options": "nosniff"})
 
     # ------------------------------------------------------------------ chat
     @app.get("/api/conversations")
@@ -519,9 +539,9 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         images = svc.uploads.validate(body.get("images"))
         if not content and not images:
             raise Invalid("content is required")
-        if images and not await svc.llm.vision():
+        if svc.uploads.needs_vision(images) and not await svc.llm.vision():
             raise Invalid("The model server has no vision projector loaded (start llama-server with --mmproj), "
-                          "so it cannot read images.")
+                          "so it cannot read images or scanned PDFs.")
         if not svc.conversations.exists(cid):
             raise NotFound(f"conversation {cid} not found")
         if body.get("effort") not in (None, "low", "medium", "xhigh"):

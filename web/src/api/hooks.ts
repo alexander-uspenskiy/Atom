@@ -24,6 +24,7 @@ export const qk = {
 };
 
 export const useStatus = () => useQuery({ queryKey: qk.status, queryFn: api.status, refetchInterval: 15000 });
+export const useUploadInfo = (id: string) => useQuery({ queryKey: ["upload", id], queryFn: () => api.uploadInfo(id), staleTime: Infinity, retry: false });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.settings });
 export const useAgents = () => useQuery({ queryKey: qk.agents, queryFn: api.agents });
 export const useTools = () => useQuery({ queryKey: qk.tools, queryFn: api.tools, staleTime: 60000 });

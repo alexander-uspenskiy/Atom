@@ -38,21 +38,19 @@ DESCRIPTION = ("Atom is a personal web agent that runs on my own computer. Ask i
 
 API = "https://api.telegram.org"
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_FILE_BYTES = 20 * 1024 * 1024    # the Bot API will not hand over bigger files (getFile limit)
+DOC_MIMES = {"application/pdf", "text/markdown", "text/x-markdown", "text/plain", "text/csv", "text/tab-separated-values",
+             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+DOC_EXTS = (".pdf", ".md", ".markdown", ".txt", ".csv", ".tsv", ".docx", ".xlsx")
 MAX_CAPTION = 1000
 MAX_LEN = 4000                      # Telegram's limit is 4096
 TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
 COMMANDS = [{"command": "new", "description": "Start a fresh conversation"},
             {"command": "help", "description": "What I can do"}]
 HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs, or set up schedules. "
-        "You can also send me a photo (with an optional caption) to read or describe it.\n\n"
-        "/new - start a fresh conversation\n/help - this message")
-
-API = "https://api.telegram.org"
-MAX_LEN = 4000                      # Telegram's limit is 4096
-TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
-COMMANDS = [{"command": "new", "description": "Start a fresh conversation"},
-            {"command": "help", "description": "What I can do"}]
-HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs, or set up schedules.\n\n"
+        "You can also send me a photo or a document (PDF, Word, Excel, CSV, Markdown, text file) with an optional caption "
+        "to read, summarize or answer questions about it.\n\n"
         "/new - start a fresh conversation\n/help - this message")
 
 
@@ -97,6 +95,7 @@ class BotAPI:
     """Minimal Bot API client. Never lets the token (part of the URL) leak into error messages."""
 
     def __init__(self, token: str):
+        self.token = token
         self.client = make_client(token)
 
     async def call(self, method: str, **params: Any) -> Any:
@@ -112,6 +111,19 @@ class BotAPI:
             raise TelegramError(data.get("description") or "request failed", data.get("error_code"),
                                 (data.get("parameters") or {}).get("retry_after"))
         return data["result"]
+
+    async def download(self, file_id: str, max_bytes: int) -> bytes:
+        """Download a file the user sent (getFile + file endpoint)."""
+        info = await self.call("getFile", file_id=file_id)
+        if (info.get("file_size") or 0) > max_bytes:
+            raise TelegramError("file too large")
+        try:
+            r = await self.client.get(f"{API}/file/bot{self.token}/{info['file_path']}")
+        except httpx.HTTPError as e:
+            raise TelegramError(f"network error ({type(e).__name__})") from None
+        if r.status_code != 200:
+            raise TelegramError(f"download failed (HTTP {r.status_code})", r.status_code)
+        return r.content
 
     async def upload(self, method: str, field: str, data: bytes, **params: Any) -> Any:
         """Call a method that takes a file (multipart); `params` are plain form fields."""
@@ -247,11 +259,24 @@ class Bridge:
                 await self.api.send(cid, f"Not authorized. Your Telegram user ID is {uid}. If you are the owner, add it "
                                          "to \"Allowed user IDs\" on the Telegram connector in the Atom dashboard.")
             return
-        text = (m.get("text") or "").strip()
-        if not text:
-            await self.api.send(cid, "I can only read text messages for now.")
+        text = (m.get("text") or m.get("caption") or "").strip()
+        images: list[str] = []
+        file_id, fname = self._file_ref(m)
+        if file_id:
+            try:
+                data = await self.api.download(file_id, MAX_IMAGE_BYTES if m.get("photo") else MAX_FILE_BYTES)
+                if fname:
+                    await self.api.call("sendChatAction", chat_id=cid, action="typing")
+                images = [(await asyncio.to_thread(self.svc.uploads.save, data, fname))["id"]]
+            except (TelegramError, Invalid) as e:
+                await self.api.send(cid, f"I couldn't use that file: {e.args[0] if e.args else e}")
+                return
+        if not text and not images:
+            await self.api.send(cid, "I can read text messages, photos and documents (PDF, Word, Excel, CSV, Markdown, text).")
             return
-        cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
+        cmd = ""
+        if not images:
+            cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
         if cmd in ("/start", "/help"):
             await self.api.send(cid, HELP)
         elif cmd == "/new":
@@ -260,7 +285,22 @@ class Bridge:
                 self.svc.conversations.rename(r["id"], f"{self._title(uid)} (until {datetime.now():%Y-%m-%d %H:%M})")
             await self.api.send(cid, "Fresh conversation started.")
         else:
-            await self.chat(cid, uid, text)
+            await self.chat(cid, uid, text, images)
+
+    @staticmethod
+    def _file_ref(m: dict) -> tuple[str | None, str]:
+        """(file_id, file name) of what the message carries: the largest photo size, an image sent as a file ("send
+        without compression"), or a supported document. Name is empty for photos."""
+        if m.get("photo"):
+            best = max(m["photo"], key=lambda p: (p.get("file_size") or 0, p.get("width", 0) * p.get("height", 0)))
+            return best["file_id"], ""
+        doc = m.get("document") or {}
+        mime, name = str(doc.get("mime_type", "")).lower(), str(doc.get("file_name") or "")
+        if mime.startswith("image/"):
+            return doc.get("file_id"), ""
+        if mime in DOC_MIMES or name.lower().endswith(DOC_EXTS):
+            return doc.get("file_id"), name or "document"
+        return None, ""
 
     async def _typing(self, chat_id: int) -> None:
         while True:
@@ -270,13 +310,13 @@ class Bridge:
                 pass
             await asyncio.sleep(4)
 
-    async def chat(self, chat_id: int, uid: int, text: str) -> None:
+    async def chat(self, chat_id: int, uid: int, text: str, images: list[str] | None = None) -> None:
         async with self.locks.setdefault(chat_id, asyncio.Lock()):           # one turn at a time per chat, in order
             conv = self._conversation(uid)
             typing = asyncio.create_task(self._typing(chat_id))
             final = ""
             try:
-                async for ev in self.svc.assistant.converse(conv, text):
+                async for ev in self.svc.assistant.converse(conv, text, images=images, can_send_images=True):
                     t = ev["type"]
                     if t == "message_end":
                         final = (ev["message"]["content"] or "").strip() or final
@@ -287,8 +327,17 @@ class Bridge:
                         await self.api.send(chat_id, f"Proposal: {a['summary']}", reply_markup={"inline_keyboard": [[
                             {"text": "Approve", "callback_data": f"a:{a['id']}"},
                             {"text": "Reject", "callback_data": f"r:{a['id']}"}]]})
+                    elif t == "image":
+                        try:
+                            path = Path(ev["path"])
+                            mime = "image/png" if path.suffix == ".png" else "image/jpeg"
+                            await self.api.send_photo(chat_id, path.read_bytes(), ev.get("caption") or "", mime)
+                        except (TelegramError, OSError) as e:
+                            await self.api.send(chat_id, f"I couldn't send the image: {e}")
                     elif t == "error":
                         await self.api.send(chat_id, f"Error: {ev['detail']}")
+            except (Invalid, NotFound) as e:                  # e.g. no vision projector, unknown upload
+                await self.api.send(chat_id, f"Error: {e.args[0] if e.args else e}")
             finally:
                 typing.cancel()
                 await asyncio.gather(typing, return_exceptions=True)
@@ -365,19 +414,26 @@ class TelegramConnector(Connector):
             text = str(a["text"]).strip()
             if not text:
                 raise ActionError("text is empty.")
+            shot = bool(a.get("include_screenshot")) and str(a.get("include_screenshot")).lower() != "false"
+            jpg = await ctx.session.look() if shot else None       # fail before sending anything if there is no page
             api = BotAPI(cfg["bot_token"])
             try:
                 for uid in sorted(ids):
-                    await api.send(uid, text)
+                    if jpg is not None:
+                        await api.send_photo(uid, jpg, text)          # long text goes out as a separate message
+                    else:
+                        await api.send(uid, text)
             except TelegramError as e:
                 raise ActionError(f"Telegram error: {e}") from None
             finally:
                 await api.aclose()
-            return ToolOutput(f"Sent to {len(ids)} Telegram user(s).")
+            return ToolOutput(f"Sent to {len(ids)} Telegram user(s)" + (" with a screenshot." if jpg is not None else "."))
 
         return {tname: ToolSpec(tname, "Send a Telegram message to the owner (e.g. to report a result or raise an alert). "
-                                       "Plain text only. Only send what the user's task asks for.",
-                                {"text": {"type": "string"}}, ["text"], send, side_effect=True)}
+                                       "Plain text; set include_screenshot=true to attach a screenshot of the current page. "
+                                       "Only send what the user's task asks for.",
+                                {"text": {"type": "string"}, "include_screenshot": {"type": "boolean"}}, ["text"], send,
+                                side_effect=True)}
 
 
 register(TelegramConnector())

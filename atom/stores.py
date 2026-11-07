@@ -160,7 +160,7 @@ class ScheduleStore:
                 "timezone": r["timezone"], "enabled": bool(r["enabled"]), "next_run_at": r["next_run_at"],
                 "last_run_at": r["last_run_at"], "last_run_id": r["last_run_id"], "last_status": r["last_status"],
                 "run_count": r["run_count"], "created_by": r["created_by"], "created_at": r["created_at"],
-                "updated_at": r["updated_at"]}
+                "updated_at": r["updated_at"], "images": jload(r["images"], [])}
 
     def list(self) -> list[dict]:
         return [self._out(r) for r in self.db.all("SELECT * FROM schedules ORDER BY created_at")]
@@ -182,21 +182,24 @@ class ScheduleStore:
             raise Invalid("task is required")
         sid, t = new_id(), now()
         self.db.execute(
-            "INSERT INTO schedules (id,name,agent_id,task,start_url,trigger,timezone,enabled,created_by,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO schedules (id,name,agent_id,task,start_url,trigger,timezone,enabled,created_by,created_at,updated_at,"
+            "images) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (sid, d["name"].strip(), d["agent_id"], d["task"].strip(), d.get("start_url") or None, jdump(d["trigger"]),
-             d["timezone"], int(d.get("enabled", True)), d.get("created_by", "user"), t, t))
+             d["timezone"], int(d.get("enabled", True)), d.get("created_by", "user"), t, t,
+             jdump(d["images"]) if d.get("images") else None))
         return self.get(sid)
 
     def update(self, sid: str, d: dict) -> dict:
         self.get(sid)
-        allowed = {"name", "agent_id", "task", "start_url", "timezone", "enabled", "trigger"}
+        allowed = {"name", "agent_id", "task", "start_url", "timezone", "enabled", "trigger", "images"}
         sets, vals = [], []
         for k, v in d.items():
             if k not in allowed:
                 continue
             if k == "trigger":
                 v = jdump(v)
+            elif k == "images":
+                v = jdump(v) if v else None
             elif k == "enabled":
                 v = int(bool(v))
             sets.append(f"{k}=?")

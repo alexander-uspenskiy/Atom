@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { invalidate, useStatus } from "../api/hooks";
+import { invalidate } from "../api/hooks";
 import type { Agent, Effort, RunOverrides, Thinking } from "../api/types";
 import { errMsg } from "../lib/format";
-import { AttachButton, AttachmentStrip, imagesFromClipboard, useAttachments } from "./chat/Attachments";
+import { AttachButton, AttachmentStrip, DropOverlay, imagesFromClipboard, useAttachments, useDropImages } from "./chat/Attachments";
 import { EFFORT_OPTS, OptionalNumber, THINKING_OPTS } from "./AgentForm";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
@@ -23,7 +23,7 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
   const [effort, setEffort] = useState<Effort>("inherit");
   const [maxSteps, setMaxSteps] = useState<number | null>(null);
   const attachments = useAttachments();
-  const visionOk = useStatus().data?.llm?.vision !== false;
+  const drop = useDropImages(attachments.add, true);
 
   useEffect(() => {
     if (!agent) return;
@@ -64,21 +64,22 @@ export function RunNowDialog({ agent, onClose }: { agent: Agent | null; onClose:
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="relative space-y-3" data-testid="run-drop" {...drop.handlers}>
+        <DropOverlay show={drop.over} />
         <Field label="Task" htmlFor="rn-task">
           <textarea
             id="rn-task" data-autofocus className="input h-28 resize-y" value={task} onChange={(e) => setTask(e.target.value)}
             placeholder="What should the agent do?"
             onPaste={(e) => {
               const files = imagesFromClipboard(e);
-              if (files.length && visionOk) { e.preventDefault(); attachments.add(files); }
+              if (files.length) { e.preventDefault(); attachments.add(files); }
             }}
           />
         </Field>
         <div>
           <div className="flex items-center gap-2">
-            <AttachButton api={attachments} disabled={!visionOk} reason="The model server was started without a vision projector (--mmproj), so it can't read images." />
-            <span className="text-xs text-muted">The agent sees attached images along with the task (screenshots, documents, photos).</span>
+            <AttachButton api={attachments}  />
+            <span className="text-xs text-muted">Drop, paste or pick images; the agent sees them along with the task.</span>
           </div>
           <AttachmentStrip api={attachments} />
         </div>

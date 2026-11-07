@@ -49,6 +49,7 @@ class Services:
                                   uploads=self.uploads)
         self.run_manager = RunManager(self.settings, self.runs, self.schedules, self.agent_runner, self.bus)
         self.scheduler.runs = self.run_manager
+        self.scheduler.uploads = self.uploads
         self.settings.on_change(self._settings_changed)
         self.assistant = None            # set in server startup (needs the assistant module)
 
