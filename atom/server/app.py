@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import Body, FastAPI, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from .. import stats as stats_mod
@@ -20,6 +21,17 @@ from ..services import Services
 from ..settings_store import SettingsError
 from ..stores import Conflict, Invalid, NotFound
 from ..tools import build_tools
+from pydantic import BaseModel
+
+
+class McpServerIn(BaseModel):
+    command: str | None = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    cwd: str | None = None
+    url: str | None = None
+    headers: dict[str, str] = {}
+    disabled: bool = False
 
 VERSION = "0.2.0"
 DIST = ROOT / "web" / "dist"
@@ -176,17 +188,39 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect}
                 for t in tools.values()]
 
+    def _mcp_payload(svc) -> dict:
+        cfgs = svc.mcp.load_config()
+        blank = {"state": "pending", "tools": 0, "tool_names": [], "error": None}
+        return {"config_path": str(svc.mcp.config_path),
+                "servers": [{"name": n, "config": c, **svc.mcp.status.get(n, blank)} for n, c in cfgs.items()]}
+
     @app.get("/api/mcp")
     async def mcp_status(request: Request):
-        m = svc_of(request).mcp
-        return {"config_path": str(m.config_path),
-                "servers": [{"name": n, **st} for n, st in m.status.items()]}
+        return _mcp_payload(svc_of(request))
 
     @app.post("/api/mcp/reload")
     async def mcp_reload(request: Request):
         svc = svc_of(request)
         await svc.refresh_mcp()
-        return {"servers": [{"name": n, **st} for n, st in svc.mcp.status.items()]}
+        return _mcp_payload(svc)
+
+    @app.put("/api/mcp/servers/{name}")
+    async def mcp_put_server(request: Request, name: str, body: McpServerIn):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name):
+            raise HTTPException(422, "Name must be 1-40 letters, digits, '-' or '_'.")
+        if bool(body.command) == bool(body.url):
+            raise HTTPException(422, "Provide exactly one of `command` (local) or `url` (remote).")
+        svc = svc_of(request)
+        await svc.mcp.set_server(name, body.model_dump(exclude_none=True, exclude_defaults=True))
+        svc.sync_mcp_tools()
+        return _mcp_payload(svc)
+
+    @app.delete("/api/mcp/servers/{name}")
+    async def mcp_delete_server(request: Request, name: str):
+        svc = svc_of(request)
+        await svc.mcp.remove_server(name)
+        svc.sync_mcp_tools()
+        return _mcp_payload(svc)
 
     @app.get("/api/agents")
     async def list_agents(request: Request):

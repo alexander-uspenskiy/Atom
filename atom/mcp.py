@@ -30,79 +30,110 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", s).strip("_").lower() or "x"
 
 
+class _Conn:
+    def __init__(self) -> None:
+        self.stop = asyncio.Event()
+        self.ready = asyncio.Event()
+        self.task: asyncio.Task | None = None
+
+
 class McpManager:
     def __init__(self, config_path: Path):
         self.config_path = Path(config_path)
         self.tools: dict[str, ToolSpec] = {}
-        self.status: dict[str, dict] = {}      # server -> {state, tools, error}
-        self._stop: asyncio.Event | None = None
-        self._tasks: list[asyncio.Task] = []
-        self._ready: dict[str, asyncio.Event] = {}
+        self.status: dict[str, dict] = {}      # server -> {state, tools, tool_names, error}
+        self._conns: dict[str, _Conn] = {}
         self._lock = asyncio.Lock()
 
+    # ---- config file ----
     def load_config(self) -> dict[str, dict]:
         if not self.config_path.exists():
             return {}
         try:
             data = json.loads(self.config_path.read_text())
         except ValueError as e:
-            self.status["_config"] = {"state": "error", "tools": 0, "error": f"invalid JSON: {e}"}
+            self.status["_config"] = {"state": "error", "tools": 0, "tool_names": [], "error": f"invalid JSON: {e}"}
             return {}
         servers = data.get("mcpServers", data) if isinstance(data, dict) else {}
         return {k: v for k, v in servers.items() if isinstance(v, dict)}
 
+    def _write_config(self, servers: dict[str, dict]) -> None:
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")
+
+    # ---- lifecycle ----
     async def start(self) -> None:
         async with self._lock:
-            await self._close()
-            self.tools, self.status = {}, {}
-            self._stop = asyncio.Event()
+            for n in list(self._conns):
+                await self._stop_one(n)
+            self.status = {}
             servers = self.load_config()
-            self._ready = {n: asyncio.Event() for n in servers}
-            self._tasks = [asyncio.create_task(self._serve(n, c)) for n, c in servers.items()]
-            # wait until every server has connected or failed
-            for n in servers:
-                await self._ready[n].wait()
+            await asyncio.gather(*(self._start_one(n, c) for n, c in servers.items()))
 
     async def reload(self) -> None:
         await self.start()
 
     async def shutdown(self) -> None:
         async with self._lock:
-            await self._close()
-            self.tools = {}
+            for n in list(self._conns):
+                await self._stop_one(n)
 
-    async def _close(self) -> None:
-        if self._stop is not None:
-            self._stop.set()
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-        self._stop, self._tasks, self._ready = None, [], {}
+    async def set_server(self, name: str, cfg: dict) -> None:
+        """Create or replace one server (persisted), reconnecting only that one."""
+        async with self._lock:
+            servers = self.load_config()
+            servers[name] = cfg
+            self._write_config(servers)
+            await self._stop_one(name)
+            await self._start_one(name, cfg)
 
-    async def _serve(self, name: str, cfg: dict) -> None:
+    async def remove_server(self, name: str) -> None:
+        async with self._lock:
+            servers = self.load_config()
+            servers.pop(name, None)
+            self._write_config(servers)
+            await self._stop_one(name)
+
+    async def _start_one(self, name: str, cfg: dict) -> None:
+        conn = self._conns[name] = _Conn()
+        conn.task = asyncio.create_task(self._serve(name, cfg, conn))
+        await conn.ready.wait()
+
+    async def _stop_one(self, name: str) -> None:
+        conn = self._conns.pop(name, None)
+        if conn and conn.task:
+            conn.stop.set()
+            await asyncio.gather(conn.task, return_exceptions=True)
+        for t in (self.status.pop(name, None) or {}).get("tool_names", []):
+            self.tools.pop(t, None)
+
+    async def _serve(self, name: str, cfg: dict, conn: _Conn) -> None:
         """Owns one server's connection for its whole lifetime (anyio scopes must exit in the entering task)."""
-        ready = self._ready[name]
         try:
             async with AsyncExitStack() as stack:
                 await self._connect(name, cfg, stack)
-                ready.set()
+                conn.ready.set()
                 if self.status.get(name, {}).get("state") == "connected":
-                    await self._stop.wait()
+                    await conn.stop.wait()
         except BaseException as e:  # noqa: BLE001
-            self.status.setdefault(name, {"state": "error", "tools": 0, "error": f"{type(e).__name__}: {str(e)[:200]}"})
+            self.status.setdefault(name, {"state": "error", "tools": 0, "tool_names": [],
+                                          "error": f"{type(e).__name__}: {str(e)[:200]}"})
         finally:
-            ready.set()
+            conn.ready.set()
 
     async def _connect(self, name: str, cfg: dict, stack: AsyncExitStack) -> None:
         if cfg.get("disabled"):
-            self.status[name] = {"state": "disabled", "tools": 0, "error": None}
+            self.status[name] = {"state": "disabled", "tools": 0, "tool_names": [], "error": None}
             return
         try:
             async with asyncio.timeout(CONNECT_TIMEOUT):     # same task: anyio scopes must not cross tasks
                 session = await self._open(cfg, stack)
                 listed = await session.list_tools()
         except Exception as e:  # noqa: BLE001
-            self.status[name] = {"state": "error", "tools": 0, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+            self.status[name] = {"state": "error", "tools": 0, "tool_names": [],
+                                  "error": f"{type(e).__name__}: {str(e)[:200]}"}
             return
-        n = 0
+        names: list[str] = []
         for t in listed.tools:
             spec_name = f"mcp_{_slug(name)}_{_slug(t.name)}"
             schema = t.input_schema or {}
@@ -111,8 +142,8 @@ class McpManager:
                 spec_name, f"[{name}] {(t.description or t.name).strip()}"[:400],
                 dict(schema.get("properties") or {}), list(schema.get("required") or []),
                 self._handler(session, t.name), side_effect=not ro)
-            n += 1
-        self.status[name] = {"state": "connected", "tools": n, "error": None}
+            names.append(spec_name)
+        self.status[name] = {"state": "connected", "tools": len(names), "tool_names": names, "error": None}
 
     async def _open(self, cfg: dict, stack: AsyncExitStack):
         from mcp import ClientSession, StdioServerParameters

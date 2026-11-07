@@ -313,3 +313,19 @@ def test_mcp_connector_tools(client, svc, tmp_path):
     r = client.post("/api/mcp/reload").json()
     assert r["servers"][0]["state"] == "connected", r
     assert "mcp_calc_add" in [t["name"] for t in client.get("/api/tools").json()]
+
+
+def test_mcp_server_crud(client, tmp_path):
+    import sys
+    srv = tmp_path / "s.py"
+    srv.write_text("from mcp.server.mcpserver import MCPServer\nm = MCPServer('t')\n@m.tool()\ndef ping() -> str:\n    'p'\n    return 'pong'\nm.run()\n")
+    assert client.put("/api/mcp/servers/bad name", json={"command": "x"}).status_code in (404, 422)
+    assert client.put("/api/mcp/servers/x", json={}).status_code == 422
+    r = client.put("/api/mcp/servers/demo", json={"command": sys.executable, "args": [str(srv)]}).json()
+    s = r["servers"][0]
+    assert s["name"] == "demo" and s["state"] == "connected" and s["tool_names"] == ["mcp_demo_ping"]
+    assert "mcp_demo_ping" in [t["name"] for t in client.get("/api/tools").json()]
+    r = client.put("/api/mcp/servers/demo", json={"command": sys.executable, "args": [str(srv)], "disabled": True}).json()
+    assert r["servers"][0]["state"] == "disabled"
+    assert "mcp_demo_ping" not in [t["name"] for t in client.get("/api/tools").json()]
+    assert client.delete("/api/mcp/servers/demo").json()["servers"] == []

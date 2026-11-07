@@ -52,6 +52,9 @@ class Services:
 
     async def refresh_mcp(self) -> None:
         await self.mcp.reload()
+        self.sync_mcp_tools()
+
+    def sync_mcp_tools(self) -> None:
         base = list(build_tools())
         self.tool_names[:] = base + list(self.mcp.tools)
         self.agent_runner.all_tools = {**build_tools(), **self.mcp.tools}

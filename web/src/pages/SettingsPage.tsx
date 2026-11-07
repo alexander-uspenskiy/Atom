@@ -4,6 +4,7 @@ import { AlertTriangle, RotateCcw, Save, Undo2 } from "lucide-react";
 import { api } from "../api/client";
 import { qk, useSettings } from "../api/hooks";
 import type { SettingField, SettingValue } from "../api/types";
+import { McpServers } from "../components/McpServers";
 import { Page } from "../components/Page";
 import { Button, IconButton } from "../components/ui/Button";
 import { Card, CardHeader } from "../components/ui/Card";
@@ -124,6 +125,7 @@ export default function SettingsPage() {
             </div>
           </Card>
         ))}
+        <McpServers />
       </div>
     </Page>
   );

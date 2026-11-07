@@ -160,3 +160,14 @@ export type GlobalEvent =
   | { type: "schedule_fired"; schedule_id: string; run_id: string }
   | { type: "action_pending" | "action_decided"; action: PendingAction }
   | { type: "status"; status: Status };
+
+export interface McpServerConfig {
+  command?: string; args?: string[]; env?: Record<string, string>; cwd?: string;
+  url?: string; headers?: Record<string, string>; disabled?: boolean;
+}
+export interface McpServer {
+  name: string; config: McpServerConfig;
+  state: "connected" | "error" | "disabled" | "pending" | string;
+  tools: number; tool_names: string[]; error: string | null;
+}
+export interface McpStatus { config_path: string; servers: McpServer[] }
