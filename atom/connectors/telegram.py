@@ -13,10 +13,13 @@ Optional tool for agents: telegram_<name>_send, to message you from a scheduled 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -27,6 +30,22 @@ from ..tools import ToolContext, ToolOutput, ToolSpec
 from . import Connector, register
 
 log = logging.getLogger("atom.telegram")
+
+ICON = Path(__file__).parent / "assets" / "atom.png"
+SHORT_DESCRIPTION = "Chat with Atom, my local web agent: browse, run tasks, and manage schedules."          # <=120
+DESCRIPTION = ("Atom is a personal web agent that runs on my own computer. Ask it to browse the web, check on runs, "
+               "set up scheduled tasks and remember things. Private: only the owner can use this bot.")       # <=512
+
+API = "https://api.telegram.org"
+MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_CAPTION = 1000
+MAX_LEN = 4000                      # Telegram's limit is 4096
+TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
+COMMANDS = [{"command": "new", "description": "Start a fresh conversation"},
+            {"command": "help", "description": "What I can do"}]
+HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs, or set up schedules. "
+        "You can also send me a photo (with an optional caption) to read or describe it.\n\n"
+        "/new - start a fresh conversation\n/help - this message")
 
 API = "https://api.telegram.org"
 MAX_LEN = 4000                      # Telegram's limit is 4096
@@ -94,6 +113,37 @@ class BotAPI:
                                 (data.get("parameters") or {}).get("retry_after"))
         return data["result"]
 
+    async def upload(self, method: str, field: str, data: bytes, **params: Any) -> Any:
+        """Call a method that takes a file (multipart); `params` are plain form fields."""
+        try:
+            r = await self.client.post(method, data=params, files={field: ("icon.png", data, "image/png")})
+            body = r.json()
+        except httpx.HTTPError as e:
+            raise TelegramError(f"network error ({type(e).__name__})") from None
+        except ValueError:
+            raise TelegramError(f"unexpected response (HTTP {r.status_code})", r.status_code) from None
+        if not body.get("ok"):
+            raise TelegramError(body.get("description") or "request failed", body.get("error_code"))
+        return body["result"]
+
+    async def send_photo(self, chat_id: int, data: bytes, caption: str = "", mime: str = "image/jpeg") -> None:
+        """Send an image. Captions are limited to 1024 chars by Telegram, so a longer one goes as a text message."""
+        ext = {"image/png": "png", "image/gif": "gif", "image/webp": "webp"}.get(mime, "jpg")
+        cap = caption.strip()
+        short = cap if len(cap) <= MAX_CAPTION else ""
+        try:
+            r = await self.client.post("sendPhoto", data={"chat_id": str(chat_id), **({"caption": short} if short else {})},
+                                       files={"photo": (f"image.{ext}", data, mime)})
+            body = r.json()
+        except httpx.HTTPError as e:
+            raise TelegramError(f"network error ({type(e).__name__})") from None
+        except ValueError:
+            raise TelegramError(f"unexpected response (HTTP {r.status_code})", r.status_code) from None
+        if not body.get("ok"):
+            raise TelegramError(body.get("description") or "request failed", body.get("error_code"))
+        if cap and not short:
+            await self.send(chat_id, cap)
+
     async def send(self, chat_id: int, text: str, **extra: Any) -> None:
         parts = chunks(text)
         for i, part in enumerate(parts):
@@ -120,6 +170,7 @@ class Bridge:
             await self.api.call("deleteWebhook")                    # getUpdates and webhooks are mutually exclusive
             me = await self.api.call("getMe")
             await self.api.call("setMyCommands", commands=COMMANDS)
+            await self._profile(me)
             log.info("telegram bot @%s connected as '%s'", me.get("username"), self.name)
             offset, delay = None, 1.0
             while True:
@@ -144,6 +195,26 @@ class Bridge:
                 t.cancel()
             await asyncio.gather(*self.tasks, return_exceptions=True)
             await self.api.aclose()
+
+    async def _profile(self, me: dict) -> None:
+        """Fill in the bot's public profile (descriptions, icon) so it doesn't need setting up in BotFather.
+        Best effort and idempotent: only changed values are sent, and failures never stop the bot."""
+        try:
+            for getter, setter, key, text in (
+                    ("getMyDescription", "setMyDescription", "description", DESCRIPTION),
+                    ("getMyShortDescription", "setMyShortDescription", "short_description", SHORT_DESCRIPTION)):
+                if (await self.api.call(getter)).get(key) != text:
+                    await self.api.call(setter, **{key: text})
+            if ICON.exists():
+                png = ICON.read_bytes()
+                marker = self.svc.settings.effective().data_dir / f"telegram-icon-{me.get('id', 0)}.sha"
+                digest = hashlib.sha256(png).hexdigest()
+                if not marker.exists() or marker.read_text() != digest:
+                    await self.api.upload("setMyProfilePhoto", "photo", png,
+                                          photo=json.dumps({"type": "static", "photo": "attach://photo"}))
+                    marker.write_text(digest)
+        except (TelegramError, OSError) as e:
+            log.warning("could not update the bot profile: %s", e)
 
     async def _safe(self, u: dict) -> None:
         try:

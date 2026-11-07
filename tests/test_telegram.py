@@ -36,10 +36,13 @@ class FakeTelegram:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         method = request.url.path.rsplit("/", 1)[-1]
-        params = json.loads(request.content or b"{}")
+        ctype = request.headers.get("content-type", "")
+        params = json.loads(request.content or b"{}") if ctype.startswith("application/json") or not request.content else {"multipart": True}
         self.calls.append((method, params))
         if method == "getMe":
-            return httpx.Response(200, json={"ok": True, "result": {"username": "atom_test_bot"}})
+            return httpx.Response(200, json={"ok": True, "result": {"id": 555, "username": "atom_test_bot"}})
+        if method in ("getMyDescription", "getMyShortDescription"):
+            return httpx.Response(200, json={"ok": True, "result": {"description": "", "short_description": ""}})
         if method == "getUpdates":
             if self.updates:
                 ups, self.updates = self.updates, []
@@ -101,6 +104,10 @@ async def test_bridge_chat_auth_and_approval(svc, fake, fake_tg):
     task = asyncio.create_task(br.run())
     try:
         # a stranger only learns their own id, and only once a minute
+        await until(lambda: fake_tg.sent("setMyProfilePhoto"))      # profile is filled in on start
+        assert fake_tg.sent("setMyDescription")[0]["description"] == tg.DESCRIPTION
+        assert fake_tg.sent("setMyShortDescription")[0]["short_description"] == tg.SHORT_DESCRIPTION
+        assert len(tg.SHORT_DESCRIPTION) <= 120 and len(tg.DESCRIPTION) <= 512
         fake_tg.push_message(7, "hello")
         fake_tg.push_message(7, "hello again")
         fake_tg.push_message(42, "/help")
