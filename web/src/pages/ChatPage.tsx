@@ -46,6 +46,8 @@ function parseToolResult(content?: string | null): { ok?: boolean; result: unkno
 }
 
 /** Convert persisted messages into render models (tool results folded into their calls). */
+const countUsers = (ms?: Message[]) => (ms ?? []).filter((m) => m.role === "user").length;
+
 function toViews(messages: Message[], actions: Map<string, PendingAction>): ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView })[] {
   const toolMsgs = new Map<string, Message>();
   for (const m of messages) if (m.role === "tool" && m.tool_call_id) toolMsgs.set(m.tool_call_id, m);
@@ -116,6 +118,7 @@ export default function ChatPage() {
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const turnConv = useRef<string | null>(null);
+  const baseUsers = useRef(0); // persisted user-message count when the live turn began
 
   const updatePrefs = (p: ChatPrefs) => {
     setPrefs(p);
@@ -143,6 +146,7 @@ export default function ChatPage() {
       turnConv.current = id;
       stick.current = true;
       setDraft("");
+      baseUsers.current = countUsers(qc.getQueryData<{ messages?: Message[] }>(qk.conversation(id))?.messages);
       dispatch({ t: "start", user: content });
       let error: string | null = null;
       let gotEvent = false;
@@ -209,6 +213,8 @@ export default function ChatPage() {
   const actionMap = useMemo(() => new Map((actionsQ.data ?? []).map((a) => [a.id, a])), [actionsQ.data]);
   const views = useMemo(() => toViews(convQ.data?.messages ?? [], actionMap), [convQ.data?.messages, actionMap]);
   const showTurn = turn.user !== null && turnConv.current === convId;
+  // A mid-stream refetch can already contain the persisted user message; don't show it twice.
+  const userPersisted = countUsers(convQ.data?.messages) > baseUsers.current;
 
   // Auto-scroll while streaming (only if the user hasn't scrolled up).
   const sig = `${views.length}|${turn.msgs.map((m) => m.content.length + m.reasoning.length + m.tools.length).join(",")}|${turn.user}`;
@@ -312,7 +318,7 @@ export default function ChatPage() {
               )}
               {showTurn && (
                 <>
-                  {turn.user && <UserBubble text={turn.user} />}
+                  {turn.user && !userPersisted && <UserBubble text={turn.user} />}
                   {turn.msgs.map((m, i) => (
                     <AssistantView
                       key={m.key}

@@ -2,16 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { lsGet, lsSet } from "./storage";
 
 type Resolved = "light" | "dark";
-interface ThemeCtx { theme: Resolved; toggle: () => void }
-const Ctx = createContext<ThemeCtx>({ theme: "light", toggle: () => undefined });
+export type ThemeMode = "auto" | "light" | "dark";
+interface ThemeCtx { theme: Resolved; mode: ThemeMode; toggle: () => void }
+const Ctx = createContext<ThemeCtx>({ theme: "light", mode: "auto", toggle: () => undefined });
+
+const NEXT: Record<ThemeMode, ThemeMode> = { auto: "light", light: "dark", dark: "auto" };
 
 const systemTheme = (): Resolved =>
   typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [explicit, setExplicit] = useState<Resolved | null>(() => {
+  const [mode, setMode] = useState<ThemeMode>(() => {
     const v = lsGet("atom-theme");
-    return v === "dark" || v === "light" ? v : null;
+    return v === "dark" || v === "light" ? v : "auto";
   });
   const [system, setSystem] = useState<Resolved>(systemTheme);
   useEffect(() => {
@@ -20,18 +23,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
-  const theme = explicit ?? system;
+  const theme: Resolved = mode === "auto" ? system : mode;
   useEffect(() => {
-    if (explicit) document.documentElement.dataset.theme = explicit;
-    else delete document.documentElement.dataset.theme;
-  }, [explicit]);
+    if (mode === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = mode;
+  }, [mode]);
   const toggle = useCallback(() => {
-    const next: Resolved = theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next; // apply before re-render so charts read fresh colours
-    setExplicit(next);
+    const next = NEXT[mode];
+    // apply before re-render so charts read fresh colours
+    if (next === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = next;
+    setMode(next);
     lsSet("atom-theme", next);
-  }, [theme]);
-  const value = useMemo(() => ({ theme, toggle }), [theme, toggle]);
+  }, [mode]);
+  const value = useMemo(() => ({ theme, mode, toggle }), [theme, mode, toggle]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

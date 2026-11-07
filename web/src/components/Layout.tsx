@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Activity, BarChart3, BookOpen, Bot, Brain, CalendarClock, History, LayoutDashboard, MessageSquare,
-  Moon, ShieldCheck, Sun, Settings as SettingsIcon, type LucideIcon,
+  Monitor, Moon, ShieldCheck, Sun, Settings as SettingsIcon, type LucideIcon,
 } from "lucide-react";
 import { useGlobalEvents, useStatus } from "../api/hooks";
 import { useTheme } from "../lib/theme";
@@ -48,7 +48,7 @@ export function LlmIndicator() {
 export function Layout() {
   useGlobalEvents();
   const { data: status } = useStatus();
-  const { theme, toggle } = useTheme();
+  const { mode, toggle } = useTheme();
   const pending = status?.pending_actions ?? 0;
   const running = status?.runs?.running?.length ?? 0;
   const badgeFor = (b?: NavDef["badge"]) => (b === "approvals" ? pending : b === "runs" ? running : 0);
@@ -102,12 +102,12 @@ export function Layout() {
           <button
             type="button"
             onClick={toggle}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-            title="Toggle theme"
+            aria-label={`Theme: ${mode}. Click to change`}
+            title={`Theme: ${mode}`}
             className="mt-0.5 flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-sm text-muted hover:bg-surface2 hover:text-fg"
           >
-            {theme === "dark" ? <Sun className="h-4 w-4 shrink-0" /> : <Moon className="h-4 w-4 shrink-0" />}
-            <span className="hidden lg:inline">{theme === "dark" ? "Light theme" : "Dark theme"}</span>
+            {mode === "auto" ? <Monitor className="h-4 w-4 shrink-0" /> : mode === "dark" ? <Moon className="h-4 w-4 shrink-0" /> : <Sun className="h-4 w-4 shrink-0" />}
+            <span className="hidden lg:inline">{mode === "auto" ? "Auto theme" : mode === "dark" ? "Dark theme" : "Light theme"}</span>
           </button>
         </div>
       </aside>

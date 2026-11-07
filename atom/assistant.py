@@ -21,7 +21,7 @@ SYSTEM = """You are the Atom assistant inside the Atom dashboard. Atom runs web 
 
 What you can do with tools:
 - Inspect: list_agents, list_schedules, list_runs, get_run, list_skills, search_memory, get_current_time.
-- Start a web agent run right now: run_agent(agent, task). Tell the user the run started; they can watch it live from the link.
+- Start a web agent run right now: run_agent(agent, task). Tell the user the run started; they can watch it live from the link. If they asked for the outcome (e.g. a summary), call get_run once afterwards: it waits for the run to finish and returns the result, which you then report.
 - Propose changes: propose_schedule, propose_schedule_update, propose_schedule_delete, propose_agent, propose_skill, propose_memory. These do NOT take effect immediately: the user sees an approval card and approves or rejects it. After proposing, say what you proposed and ask them to review the card. Never claim something was created unless the tool result says it was approved/created.
 
 Guidelines:
@@ -59,7 +59,7 @@ TOOLS = [
     _spec("list_schedules", "List scheduled tasks with their next run and last status.", {}),
     _spec("list_runs", "List recent runs (newest first).",
           {"limit": {"type": "integer"}, "status": {"type": "string", "enum": ["queued", "running", "done", "failed", "budget", "stopped"]}}),
-    _spec("get_run", "Details of one run including its result and timing.", {"run_id": S}, ["run_id"]),
+    _spec("get_run", "Details of one run including its result and timing. If the run is still queued/running this waits (up to ~2 min) for it to finish, so call it once; do not poll.", {"run_id": S}, ["run_id"]),
     _spec("list_skills", "List the saved skills.", {}),
     _spec("search_memory", "Search saved memories.", {"query": S}, ["query"]),
     _spec("run_agent", "Start a web agent run now.",
@@ -142,6 +142,11 @@ class Assistant:
                  "tokens_out": r["completion_tokens"]} for r in items]}), {}
         if name == "get_run":
             r = svc.runs.get(str(a["run_id"]))
+            # A run takes a minute or more; wait here instead of letting the model burn its tool rounds polling.
+            deadline = time.monotonic() + (0 if a.get("wait") is False else 120)
+            while r["status"] in ("queued", "running") and time.monotonic() < deadline:
+                await asyncio.sleep(2)
+                r = svc.runs.get(str(a["run_id"]))
             return json.dumps({k: r[k] for k in ("id", "task", "agent_name", "status", "success", "result", "error",
                                                  "steps", "prompt_tokens", "cached_tokens", "completion_tokens",
                                                  "llm_seconds", "tool_seconds", "wall_seconds")}), {}
