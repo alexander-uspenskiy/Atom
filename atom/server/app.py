@@ -33,6 +33,13 @@ class McpServerIn(BaseModel):
     headers: dict[str, str] = {}
     disabled: bool = False
 
+class VariableIn(BaseModel):
+    value: str | None = None          # omit to keep the stored value
+    secret: bool = False
+    description: str = ""
+    domains: list[str] = []
+
+
 VERSION = "0.2.0"
 DIST = ROOT / "web" / "dist"
 
@@ -221,6 +228,20 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         await svc.mcp.remove_server(name)
         svc.sync_mcp_tools()
         return _mcp_payload(svc)
+
+    # ------------------------------------------------------------------ variables
+    @app.get("/api/variables")
+    async def list_variables(request: Request):
+        return svc_of(request).variables.list()
+
+    @app.put("/api/variables/{name}")
+    async def put_variable(request: Request, name: str, body: VariableIn):
+        return svc_of(request).variables.put(name, value=body.value, secret=body.secret,
+                                             description=body.description, domains=body.domains)
+
+    @app.delete("/api/variables/{name}", status_code=204)
+    async def delete_variable(request: Request, name: str):
+        svc_of(request).variables.delete(name)
 
     @app.get("/api/agents")
     async def list_agents(request: Request):

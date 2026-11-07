@@ -21,6 +21,13 @@ Pieces separately: `ops/llama-server.sh` (3 slots: agent / extraction+thinking /
 - **Tests**: `uv run pytest` (no model needed; uses a scripted fake LLM and a local fixture site).
 - **Frontend dev**: `cd web && pnpm install && pnpm dev` (proxies /api to :8787); `pnpm build` writes `web/dist`.
 
+## Environment & secret variables
+
+Settings → "Environment & secrets" stores named values (`/api/variables`, SQLite, plain text, local only). Agents use
+them by writing `{{NAME}}` inside a tool argument; the value is filled in when the tool runs. Plain variables are listed
+(with values) in the agent's prompt. Secrets are never shown to the model or the API: they work only with `type`,
+`select_option`, `open_url` and `mcp_*` tools, can be limited to domains, and are scrubbed from tool output and run logs.
+
 ## MCP connectors
 
 Agents can use tools from MCP servers. Put them in `data/mcp.json` (standard `mcpServers` format; stdio via

@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { qk, useSettings } from "../api/hooks";
 import type { SettingField, SettingValue } from "../api/types";
 import { McpServers } from "../components/McpServers";
+import { Variables } from "../components/Variables";
 import { Page } from "../components/Page";
 import { Button, IconButton } from "../components/ui/Button";
 import { Card, CardHeader } from "../components/ui/Card";
@@ -125,6 +126,7 @@ export default function SettingsPage() {
             </div>
           </Card>
         ))}
+        <Variables />
         <McpServers />
       </div>
     </Page>

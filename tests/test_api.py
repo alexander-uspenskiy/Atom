@@ -329,3 +329,34 @@ def test_mcp_server_crud(client, tmp_path):
     assert r["servers"][0]["state"] == "disabled"
     assert "mcp_demo_ping" not in [t["name"] for t in client.get("/api/tools").json()]
     assert client.delete("/api/mcp/servers/demo").json()["servers"] == []
+
+
+# ---------------------------------------------------------------- variables
+def test_variables_api_masks_secrets(client):
+    r = client.put("/api/variables/API_BASE", json={"value": "https://x.test", "description": "base"}).json()
+    assert r["value"] == "https://x.test" and not r["secret"]
+    s = client.put("/api/variables/TOKEN", json={"value": "s3cr3t-value", "secret": True, "domains": ["Example.com"]}).json()
+    assert s["value"] is None and s["has_value"] and s["domains"] == ["example.com"]
+    assert "s3cr3t-value" not in client.get("/api/variables").text
+    # editing metadata without a value keeps the stored secret
+    client.put("/api/variables/TOKEN", json={"secret": True, "description": "d"})
+    assert client.put("/api/variables/NEW", json={"secret": True}).status_code == 422
+    assert client.put("/api/variables/bad name", json={"value": "x"}).status_code in (404, 422)
+    assert client.delete("/api/variables/TOKEN").status_code == 204
+    assert client.delete("/api/variables/TOKEN").status_code == 404
+
+
+def test_variable_substitution_and_redaction():
+    from atom.variables import VariableSet
+    vs = VariableSet({"USER": {"value": "bob", "secret": False, "description": "", "domains": []},
+                      "PW": {"value": "hunter2!", "secret": True, "description": "", "domains": ["example.com"]}})
+    a, e = vs.apply("type", {"ref": "e1", "text": "{{PW}}"}, "https://app.example.com/login")
+    assert a["text"] == "hunter2!" and e is None
+    _, e = vs.apply("type", {"text": "{{PW}}"}, "https://evil.test/")
+    assert e and "example.com" in e
+    _, e = vs.apply("find", {"query": "{{PW}}"}, "https://example.com")
+    assert e and "secret" in e
+    assert vs.apply("find", {"query": "{{USER}}"}, None)[0]["query"] == "bob"
+    assert vs.apply("note", {"text": "{{PW}}"}, None)[0]["text"] == "{{PW}}"
+    assert vs.redact("typed hunter2! ok") == "typed {{PW}} ok"
+    assert "hunter2!" not in vs.prompt_section() and "bob" in vs.prompt_section()

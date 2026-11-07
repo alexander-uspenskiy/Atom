@@ -88,7 +88,8 @@ ConsoleCb = Callable[[dict], None]
 
 class Agent:
     def __init__(self, settings: Settings, llm: LLM, runs: RunStore, bus: EventBus, *, skills: Any = None,
-                 memory: MemoryStore | None = None, actions: Any = None, console: ConsoleCb | None = None):
+                 memory: MemoryStore | None = None, actions: Any = None, console: ConsoleCb | None = None,
+                 variables: Any = None):
         self.s = settings
         self.llm = llm
         self.runs = runs
@@ -96,6 +97,7 @@ class Agent:
         self.skills = skills
         self.memory = memory
         self.actions = actions
+        self.variables = variables          # VariableStore | None
         self.console = console
         self.all_tools: dict[str, ToolSpec] = build_tools()
 
@@ -119,8 +121,10 @@ class Agent:
             tools.pop("recall", None)
         return tools
 
-    def _system_prompt(self, cfg: RunConfig) -> str:
+    def _system_prompt(self, cfg: RunConfig, vs: Any = None) -> str:
         sp = SYSTEM_PROMPT
+        if vs:
+            sp += "\n\n" + vs.prompt_section()
         if cfg.agent.get("instructions"):
             sp += f"\n\nAdditional instructions for this agent:\n{cfg.agent['instructions'].strip()}"
         if cfg.skill_names and self.skills is not None:
@@ -144,6 +148,7 @@ class Agent:
         run_dir = s.runs_dir / run_id
         policy = Policy(allowed_domains=cfg.allowed_domains, allow_private=cfg.allow_private)
         session = BrowserSession(s, policy, run_dir=run_dir, profile=cfg.profile)
+        vs = self.variables.snapshot() if self.variables is not None else None
         tools = self._tools_for(cfg)
         schemas = [t.schema() for t in tools.values()]
         scopes, write_scope = self._scopes(cfg)
@@ -198,7 +203,7 @@ class Agent:
                         f"- {(m['title'] + ': ') if m['title'] else ''}{m['content']}" for m in mems)
             if first_obs:
                 user += f"\n\nCurrent page:\n{first_obs}"
-            system_prompt = self._system_prompt(cfg)
+            system_prompt = self._system_prompt(cfg, vs)
             messages: list[dict] = [{"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user}]
             base_user = user
@@ -291,10 +296,13 @@ class Agent:
                         out = ToolOutput(f"Could not parse arguments: {tc.parse_error}", ok=False)
                     elif (verr := validate_args(spec, tc.arguments)):
                         out = ToolOutput(verr, ok=False)
+                    elif vs and (vres := vs.apply(tc.name, tc.arguments, session.url))[1]:
+                        out = ToolOutput(f"Error: {vres[1]}", ok=False)
                     else:
                         t0 = time.perf_counter()
+                        call_args = vs.apply(tc.name, tc.arguments, session.url)[0] if vs else tc.arguments
                         try:
-                            out = await asyncio.wait_for(spec.handler(ctx, tc.arguments), timeout=120)
+                            out = await asyncio.wait_for(spec.handler(ctx, call_args), timeout=120)
                         except ActionError as e:
                             out = ToolOutput(f"Error: {e}", ok=False)
                         except asyncio.TimeoutError:
@@ -306,6 +314,10 @@ class Agent:
                         dt = time.perf_counter() - t0
                         tot["tool_seconds"] += dt
                         self.runs.bump(run_id, tool_seconds=dt)
+                    if vs:
+                        out.text = vs.redact(out.text)
+                        if isinstance(out.result, str):
+                            out.result = vs.redact(out.result)
                     canon = json.dumps(tc.arguments, sort_keys=True, ensure_ascii=False)[:200]
                     calls_log.append((tc.name, tc.arguments))
                     action_log.append(f"{tc.name}({canon[:90]}) -> {'ok' if out.ok else 'ERROR'}: "

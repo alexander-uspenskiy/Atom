@@ -1,7 +1,7 @@
 import type {
   Agent, AgentInput, ChatBody, ChatEvent, Conversation, ConversationInfo, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
-  McpServerConfig, McpStatus, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
+  McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
 import { parseJSON, readSSE } from "./sse";
 
@@ -73,6 +73,9 @@ export const api = {
   mcp: () => req<McpStatus>("GET", "/mcp"),
   mcpReload: () => req<McpStatus>("POST", "/mcp/reload"),
   mcpSave: (name: string, cfg: McpServerConfig) => req<McpStatus>("PUT", `/mcp/servers/${encodeURIComponent(name)}`, cfg),
+  variables: () => req<Variable[]>("GET", "/variables"),
+  variableSave: (name: string, v: VariableIn) => req<Variable>("PUT", `/variables/${encodeURIComponent(name)}`, v),
+  variableDelete: (name: string) => req<void>("DELETE", `/variables/${encodeURIComponent(name)}`),
   mcpDelete: (name: string) => req<McpStatus>("DELETE", `/mcp/servers/${encodeURIComponent(name)}`),
   runAgent: (id: string, body: { task: string; start_url?: string | null; overrides?: RunOverrides }) =>
     req<{ run_id: string }>("POST", `/agents/${encodeURIComponent(id)}/run`, body),

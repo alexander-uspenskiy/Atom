@@ -171,3 +171,9 @@ export interface McpServer {
   tools: number; tool_names: string[]; error: string | null;
 }
 export interface McpStatus { config_path: string; servers: McpServer[] }
+
+export interface Variable {
+  name: string; secret: boolean; value: string | null; has_value: boolean;
+  description: string; domains: string[]; updated_at: number;
+}
+export interface VariableIn { value?: string; secret: boolean; description: string; domains: string[] }

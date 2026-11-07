@@ -16,6 +16,7 @@ from .settings_store import SettingsStore
 from .skills import SkillStore
 from .stores import ActionStore, AgentStore, ConversationStore, MemoryStore, RunStore, ScheduleStore
 from .tools import build_tools
+from .variables import VariableStore
 
 
 class Services:
@@ -32,6 +33,7 @@ class Services:
         self.schedules = ScheduleStore(self.db)
         self.runs = RunStore(self.db)
         self.memory = MemoryStore(self.db)
+        self.variables = VariableStore(self.db)
         self.conversations = ConversationStore(self.db)
         self.action_store = ActionStore(self.db)
         self.skills = SkillStore(eff.skills_dir)
@@ -39,7 +41,7 @@ class Services:
         self.executor = ActionExecutor(self.action_store, self.agents, self.schedules, self.scheduler, self.skills,
                                        self.memory, self.settings, self.bus)
         self.agent_runner = Agent(eff, self.llm, self.runs, self.bus, skills=self.skills, memory=self.memory,
-                                  actions=self.executor)
+                                  actions=self.executor, variables=self.variables)
         self.run_manager = RunManager(self.settings, self.runs, self.schedules, self.agent_runner, self.bus)
         self.scheduler.runs = self.run_manager
         self.settings.on_change(self._settings_changed)
