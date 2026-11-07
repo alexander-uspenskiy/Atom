@@ -6,6 +6,7 @@ from typing import Any
 from .actions import ActionExecutor
 from .agent import Agent
 from .config import Settings
+from .connectors import ConnectorManager
 from .db import Database
 from .events import EventBus
 from .llm import LLM
@@ -29,6 +30,7 @@ class Services:
         self.llm = llm or LLM(eff)
         self.tool_names = list(build_tools())          # mutated in place when MCP tools connect
         self.mcp = McpManager(eff.data_dir / "mcp.json")
+        self.connectors = ConnectorManager(self.db)
         self.agents = AgentStore(self.db, self.tool_names)
         self.schedules = ScheduleStore(self.db)
         self.runs = RunStore(self.db)
@@ -58,8 +60,10 @@ class Services:
 
     def sync_mcp_tools(self) -> None:
         base = list(build_tools())
-        self.tool_names[:] = base + list(self.mcp.tools)
-        self.agent_runner.all_tools = {**build_tools(), **self.mcp.tools}
+        self.connectors.reload()
+        extra = {**self.mcp.tools, **self.connectors.tools}
+        self.tool_names[:] = base + list(extra)
+        self.agent_runner.all_tools = {**build_tools(), **extra}
 
     async def startup(self, *, scheduler: bool = True) -> None:
         self.agents.ensure_default()

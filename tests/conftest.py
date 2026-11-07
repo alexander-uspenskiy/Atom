@@ -15,6 +15,31 @@ from atom.server.app import create_app
 from atom.services import Services
 from evals.fixtures.server import FixtureServer
 
+import keyring
+from keyring.backend import KeyringBackend
+
+
+class MemoryKeyring(KeyringBackend):
+    priority = 1
+
+    def __init__(self):
+        self.d: dict = {}
+
+    def get_password(self, service, username): return self.d.get((service, username))
+    def set_password(self, service, username, password): self.d[(service, username)] = password
+    def delete_password(self, service, username):
+        if (service, username) not in self.d:
+            raise keyring.errors.PasswordDeleteError("missing")
+        del self.d[(service, username)]
+
+
+@pytest.fixture(autouse=True)
+def _memory_keyring():
+    """Never touch the real system keychain in tests."""
+    kr = MemoryKeyring()
+    keyring.set_keyring(kr)
+    return kr
+
 
 class FakeLLM:
     """Replays scripted responses. Each script item is a dict:

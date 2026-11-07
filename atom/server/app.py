@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from .. import stats as stats_mod
 from ..assistant import Assistant
@@ -32,6 +32,12 @@ class McpServerIn(BaseModel):
     url: str | None = None
     headers: dict[str, str] = {}
     disabled: bool = False
+
+class ConnectorIn(BaseModel):
+    type: str
+    enabled: bool = True
+    config: dict[str, Any] = {}
+
 
 class VariableIn(BaseModel):
     value: str | None = None          # omit to keep the stored value
@@ -191,7 +197,8 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     # ------------------------------------------------------------------ agents
     @app.get("/api/tools")
     async def list_tools(request: Request):
-        tools = {**build_tools(), **svc_of(request).mcp.tools}
+        svc = svc_of(request)
+        tools = {**build_tools(), **svc.mcp.tools, **svc.connectors.tools}
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect}
                 for t in tools.values()]
 
@@ -228,6 +235,57 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         await svc.mcp.remove_server(name)
         svc.sync_mcp_tools()
         return _mcp_payload(svc)
+
+    # ------------------------------------------------------------------ connectors
+    @app.get("/api/connectors")
+    async def list_connectors(request: Request):
+        return svc_of(request).connectors.payload()
+
+    @app.put("/api/connectors/{name}")
+    async def put_connector(request: Request, name: str, body: ConnectorIn):
+        svc = svc_of(request)
+        svc.connectors.put(name, body.type, body.enabled, body.config)
+        svc.sync_mcp_tools()
+        return svc.connectors.payload()
+
+    @app.delete("/api/connectors/{name}")
+    async def delete_connector(request: Request, name: str):
+        svc = svc_of(request)
+        svc.connectors.delete(name)
+        svc.sync_mcp_tools()
+        return svc.connectors.payload()
+
+    @app.post("/api/connectors/{name}/oauth/start")
+    async def connector_oauth_start(request: Request, name: str):
+        redirect = f"{request.url.scheme}://{request.url.netloc}/api/oauth/callback"
+        return {"auth_url": svc_of(request).connectors.oauth_begin(name, redirect), "redirect_uri": redirect}
+
+    @app.post("/api/connectors/{name}/oauth/signout")
+    async def connector_oauth_signout(request: Request, name: str):
+        svc = svc_of(request)
+        svc.connectors.oauth_signout(name)
+        svc.sync_mcp_tools()
+        return svc.connectors.payload()
+
+    @app.get("/api/oauth/callback")
+    async def oauth_callback(request: Request, state: str = "", code: str = "", error: str = ""):
+        import html as _html
+        svc = svc_of(request)
+        try:
+            if error or not code:
+                raise Invalid(f"Sign-in was cancelled or failed ({error or 'no code returned'}).")
+            name = await svc.connectors.oauth_complete(state, code)
+            svc.sync_mcp_tools()
+            title, msg = "Signed in", f"Connector \u201c{_html.escape(name)}\u201d is connected. You can close this tab."
+        except Invalid as e:
+            title, msg = "Sign-in failed", _html.escape(str(e))
+        return HTMLResponse(f"<!doctype html><meta charset=utf-8><title>{title}</title>"
+                            "<body style='font:16px system-ui;max-width:32rem;margin:15vh auto;padding:0 1rem'>"
+                            f"<h2>{title}</h2><p>{msg}</p>")
+
+    @app.post("/api/connectors/{name}/test")
+    async def test_connector(request: Request, name: str):
+        return await svc_of(request).connectors.test(name)
 
     # ------------------------------------------------------------------ variables
     @app.get("/api/variables")

@@ -177,3 +177,14 @@ export interface Variable {
   description: string; domains: string[]; updated_at: number;
 }
 export interface VariableIn { value?: string; secret: boolean; description: string; domains: string[] }
+
+export interface ConnectorField {
+  key: string; label: string; type: "text" | "password" | "boolean" | "number";
+  required?: boolean; default?: unknown; help?: string; placeholder?: string;
+}
+export interface ConnectorType { type: string; label: string; description: string; fields: ConnectorField[]; oauth: boolean }
+export interface ConnectorItem {
+  name: string; type: string; enabled: boolean; config: Record<string, unknown>; has_secret: Record<string, boolean>; signed_in: boolean;
+  state: "ready" | "disabled" | "error" | "pending" | "needs_auth"; error: string | null; tool_names: string[];
+}
+export interface ConnectorsPayload { types: ConnectorType[]; items: ConnectorItem[] }

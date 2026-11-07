@@ -1,7 +1,7 @@
 import type {
   Agent, AgentInput, ChatBody, ChatEvent, Conversation, ConversationInfo, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
-  McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
+  ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
 import { parseJSON, readSSE } from "./sse";
 
@@ -73,6 +73,12 @@ export const api = {
   mcp: () => req<McpStatus>("GET", "/mcp"),
   mcpReload: () => req<McpStatus>("POST", "/mcp/reload"),
   mcpSave: (name: string, cfg: McpServerConfig) => req<McpStatus>("PUT", `/mcp/servers/${encodeURIComponent(name)}`, cfg),
+  connectors: () => req<ConnectorsPayload>("GET", "/connectors"),
+  connectorSave: (name: string, body: { type: string; enabled: boolean; config: Record<string, unknown> }) => req<ConnectorsPayload>("PUT", `/connectors/${encodeURIComponent(name)}`, body),
+  connectorDelete: (name: string) => req<ConnectorsPayload>("DELETE", `/connectors/${encodeURIComponent(name)}`),
+  connectorTest: (name: string) => req<{ ok: boolean; message: string }>("POST", `/connectors/${encodeURIComponent(name)}/test`),
+  connectorOAuthStart: (name: string) => req<{ auth_url: string; redirect_uri: string }>("POST", `/connectors/${encodeURIComponent(name)}/oauth/start`),
+  connectorSignOut: (name: string) => req<ConnectorsPayload>("POST", `/connectors/${encodeURIComponent(name)}/oauth/signout`),
   variables: () => req<Variable[]>("GET", "/variables"),
   variableSave: (name: string, v: VariableIn) => req<Variable>("PUT", `/variables/${encodeURIComponent(name)}`, v),
   variableDelete: (name: string) => req<void>("DELETE", `/variables/${encodeURIComponent(name)}`),

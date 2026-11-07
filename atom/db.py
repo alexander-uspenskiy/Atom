@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   created_by TEXT, conversation_id TEXT, run_id TEXT, created_at REAL, decided_at REAL, result TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS connectors (
+  name TEXT PRIMARY KEY, type TEXT NOT NULL, config TEXT DEFAULT '{}', enabled INTEGER DEFAULT 1,
+  created_at REAL, updated_at REAL
+);
 CREATE TABLE IF NOT EXISTS variables (
   name TEXT PRIMARY KEY, value TEXT NOT NULL, secret INTEGER DEFAULT 0, description TEXT DEFAULT '',
   domains TEXT DEFAULT '[]', created_at REAL, updated_at REAL

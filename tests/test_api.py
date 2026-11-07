@@ -360,3 +360,138 @@ def test_variable_substitution_and_redaction():
     assert vs.apply("note", {"text": "{{PW}}"}, None)[0]["text"] == "{{PW}}"
     assert vs.redact("typed hunter2! ok") == "typed {{PW}} ok"
     assert "hunter2!" not in vs.prompt_section() and "bob" in vs.prompt_section()
+
+
+# ---------------------------------------------------------------- connectors (gmail)
+RAW = (b"From: Bob <bob@example.com>\r\nTo: me@gmail.com\r\nSubject: Hello there\r\nDate: Mon, 1 Jan 2026 10:00:00 +0000\r\n"
+       b"Message-ID: <abc@x>\r\nContent-Type: text/plain\r\n\r\nSee you at noon.\r\n")
+
+
+class FakeIMAP:
+    sent_search: list = []
+
+    def __init__(self, *a, **k): pass
+    def login(self, u, p): assert p == "abcdefghijklmnop"          # spaces stripped
+    def select(self, folder, readonly=False): return "OK", [b"2"]
+    def logout(self): pass
+
+    def uid(self, cmd, *args):
+        if cmd == "SEARCH":
+            FakeIMAP.sent_search.append(args)
+            return "OK", [b"5 7"]
+        if "HEADER.FIELDS" in args[1]:
+            return "OK", [(b"1 (UID 7 BODY[HEADER.FIELDS (FROM SUBJECT)] {10}", RAW), b")",
+                          (b"2 (UID 5 BODY[HEADER.FIELDS (FROM SUBJECT)] {10}", RAW), b")"]
+        return "OK", [(b"1 (UID 7 BODY[] {10}", RAW), b")"]
+
+
+def _gmail(client, allow_send=False):
+    return client.put("/api/connectors/work", json={"type": "gmail", "enabled": True, "config": {
+        "email": "me@gmail.com", "app_password": "abcd efgh ijkl mnop", "allow_send": allow_send}})
+
+
+def test_gmail_connector_config_masks_secret_and_registers_tools(client, svc, _memory_keyring):
+    r = _gmail(client)
+    assert r.status_code == 200
+    item = r.json()["items"][0]
+    assert item["state"] == "ready" and "app_password" not in item["config"] and item["has_secret"]["app_password"]
+    assert "abcd" not in client.get("/api/connectors").text
+    assert [t["key"] for t in r.json()["types"][0]["fields"]] == ["email", "client_id", "client_secret", "app_password", "allow_send"]
+    assert "abcd" not in str(svc.db.all("SELECT * FROM connectors")[0]["config"])          # secret is not in the DB
+    assert _memory_keyring.get_password("atom-connector", "work:app_password") == "abcd efgh ijkl mnop"
+    names = {t["name"] for t in client.get("/api/tools").json()}
+    assert {"gmail_work_search", "gmail_work_read"} <= names and "gmail_work_send" not in names
+    # editing with a blank password keeps it; enabling sending adds the send tool
+    r = client.put("/api/connectors/work", json={"type": "gmail", "config": {"email": "me@gmail.com", "allow_send": True}})
+    assert r.json()["items"][0]["state"] == "ready"
+    assert "gmail_work_send" in {t["name"] for t in client.get("/api/tools").json()}
+    assert client.put("/api/connectors/x", json={"type": "nope"}).status_code == 422
+    assert client.put("/api/connectors/x", json={"type": "gmail", "config": {"email": "bad", "app_password": "p"}}).status_code == 422
+    assert client.delete("/api/connectors/work").json()["items"] == []
+    assert _memory_keyring.get_password("atom-connector", "work:app_password") is None
+    assert client.delete("/api/connectors/work").status_code == 404
+
+
+def test_gmail_tools_search_read_send(client, svc, monkeypatch):
+    import asyncio
+    import smtplib
+    import imaplib
+    from atom.connectors import gmail as g
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAP)
+    sent = {}
+
+    class FakeSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def login(self, u, p): pass
+        def send_message(self, msg, to_addrs): sent.update(msg=msg, to=to_addrs)
+
+    monkeypatch.setattr(smtplib, "SMTP_SSL", FakeSMTP)
+    _gmail(client, allow_send=True)
+    tools = svc.connectors.tools
+    ctx = type("C", (), {"settings": svc.settings.effective()})()
+    out = asyncio.run(tools["gmail_work_search"].handler(ctx, {"query": "from:bob is:unread"}))
+    assert out.ok and "id=7" in out.text and "Hello there" in out.text and out.text.index("id=7") < out.text.index("id=5")
+    assert FakeIMAP.sent_search[-1] == ("X-GM-RAW", '"from:bob is:unread"')
+    out = asyncio.run(tools["gmail_work_read"].handler(ctx, {"id": "7"}))
+    assert "See you at noon." in out.text and "<email>" in out.text
+    from atom.browser.session import ActionError
+    import pytest
+    with pytest.raises(ActionError):
+        asyncio.run(tools["gmail_work_read"].handler(ctx, {"id": "7 ALL"}))
+    out = asyncio.run(tools["gmail_work_send"].handler(ctx, {"to": "a@b.com", "body": "hi", "reply_to_id": "7"}))
+    assert sent["to"] == ["a@b.com"] and sent["msg"]["Subject"] == "Re: Hello there" and sent["msg"]["In-Reply-To"] == "<abc@x>"
+    with pytest.raises(ActionError):
+        asyncio.run(tools["gmail_work_send"].handler(ctx, {"to": "a@b.com\nBcc: x@y.com", "subject": "s", "body": "b"}))
+    assert client.post("/api/connectors/work/test").json()["ok"] is True
+
+
+def test_gmail_oauth_sign_in_flow(client, svc, monkeypatch, _memory_keyring):
+    import asyncio
+    import imaplib
+    from urllib.parse import parse_qs, urlparse
+    from atom.connectors import oauth
+
+    r = client.put("/api/connectors/g", json={"type": "gmail", "config": {"email": "me@gmail.com", "client_id": "cid", "client_secret": "csec"}})
+    it = r.json()["items"][0]
+    assert it["state"] == "needs_auth" and not it["signed_in"]
+    assert client.put("/api/connectors/bad", json={"type": "gmail", "config": {"email": "me@gmail.com"}}).status_code == 422
+    start = client.post("/api/connectors/g/oauth/start").json()
+    q = parse_qs(urlparse(start["auth_url"]).query)
+    assert q["client_id"] == ["cid"] and q["code_challenge_method"] == ["S256"] and q["access_type"] == ["offline"]
+    assert q["redirect_uri"][0].endswith("/api/oauth/callback") and q["scope"] == ["https://mail.google.com/"]
+    state = q["state"][0]
+    assert "failed" in client.get("/api/oauth/callback", params={"state": "bogus", "code": "c"}).text
+
+    class Resp:
+        status_code, headers = 200, {"content-type": "application/json"}
+        def json(self): return {"refresh_token": "rt-1", "access_token": "at-1", "expires_in": 3600}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def post(self, url, data):
+            assert data["code"] == "the-code" and data["code_verifier"] and data["client_secret"] == "csec"
+            return Resp()
+
+    monkeypatch.setattr(oauth.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(oauth.httpx, "post", lambda url, **k: Resp())
+    assert "Signed in" in client.get("/api/oauth/callback", params={"state": state, "code": "the-code"}).text
+    it = client.get("/api/connectors").json()["items"][0]
+    assert it["state"] == "ready" and it["signed_in"] and "gmail_g_search" in it["tool_names"]
+    assert _memory_keyring.get_password("atom-connector", "g:oauth_refresh_token") == "rt-1"
+    assert "rt-1" not in str(svc.db.all("SELECT * FROM connectors")[0]["config"])
+    assert "rt-1" not in client.get("/api/connectors").text
+
+    used = {}
+
+    class OAuthIMAP(FakeIMAP):
+        def authenticate(self, mech, fn): used["mech"], used["auth"] = mech, fn(b"").decode()
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", OAuthIMAP)
+    ctx = type("C", (), {"settings": svc.settings.effective()})()
+    out = asyncio.run(svc.connectors.tools["gmail_g_search"].handler(ctx, {"query": "x"}))
+    assert out.ok and used["mech"] == "XOAUTH2" and used["auth"] == "user=me@gmail.com\x01auth=Bearer at-1\x01\x01"
+    assert client.post("/api/connectors/g/oauth/signout").json()["items"][0]["state"] == "needs_auth"
+    assert _memory_keyring.get_password("atom-connector", "g:oauth_refresh_token") is None

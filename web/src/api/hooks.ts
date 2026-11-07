@@ -11,6 +11,7 @@ export const qk = {
   tools: ["tools"] as const,
   mcp: ["mcp"] as const,
   variables: ["variables"] as const,
+  connectors: ["connectors"] as const,
   runs: (f?: RunFilters) => ["runs", f ?? {}] as const,
   run: (id: string) => ["run", id] as const,
   schedules: ["schedules"] as const,
@@ -27,6 +28,7 @@ export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.
 export const useAgents = () => useQuery({ queryKey: qk.agents, queryFn: api.agents });
 export const useTools = () => useQuery({ queryKey: qk.tools, queryFn: api.tools, staleTime: 60000 });
 export const useVariables = () => useQuery({ queryKey: qk.variables, queryFn: api.variables });
+export const useConnectors = () => useQuery({ queryKey: qk.connectors, queryFn: api.connectors });
 export const useMcp = () => useQuery({ queryKey: qk.mcp, queryFn: api.mcp });
 export const useSkills = () => useQuery({ queryKey: qk.skills, queryFn: api.skills });
 export const useSchedules = () => useQuery({ queryKey: qk.schedules, queryFn: api.schedules });
