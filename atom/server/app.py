@@ -171,9 +171,22 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
 
     # ------------------------------------------------------------------ agents
     @app.get("/api/tools")
-    async def list_tools():
+    async def list_tools(request: Request):
+        tools = {**build_tools(), **svc_of(request).mcp.tools}
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect}
-                for t in build_tools().values()]
+                for t in tools.values()]
+
+    @app.get("/api/mcp")
+    async def mcp_status(request: Request):
+        m = svc_of(request).mcp
+        return {"config_path": str(m.config_path),
+                "servers": [{"name": n, **st} for n, st in m.status.items()]}
+
+    @app.post("/api/mcp/reload")
+    async def mcp_reload(request: Request):
+        svc = svc_of(request)
+        await svc.refresh_mcp()
+        return {"servers": [{"name": n, **st} for n, st in svc.mcp.status.items()]}
 
     @app.get("/api/agents")
     async def list_agents(request: Request):

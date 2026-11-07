@@ -295,3 +295,21 @@ def test_global_event_stream_has_status_first(client):
                 assert ev["type"] == "status" and ev["status"]["llm"]["healthy"] is True
                 assert [s["role"] for s in ev["status"]["llm"]["slots"]] == ["agent", "extract", "chat"]
                 break
+
+
+def test_mcp_connector_tools(client, svc, tmp_path):
+    import json, sys, textwrap
+    srv = tmp_path / "srv.py"
+    srv.write_text(textwrap.dedent('''
+        from mcp.server.mcpserver import MCPServer
+        m = MCPServer("t")
+        @m.tool()
+        def add(a: int, b: int) -> int:
+            """Add two numbers."""
+            return a + b
+        m.run()
+    '''))
+    svc.mcp.config_path.write_text(json.dumps({"mcpServers": {"calc": {"command": sys.executable, "args": [str(srv)]}}}))
+    r = client.post("/api/mcp/reload").json()
+    assert r["servers"][0]["state"] == "connected", r
+    assert "mcp_calc_add" in [t["name"] for t in client.get("/api/tools").json()]

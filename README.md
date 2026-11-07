@@ -21,6 +21,13 @@ Pieces separately: `ops/llama-server.sh` (3 slots: agent / extraction+thinking /
 - **Tests**: `uv run pytest` (no model needed; uses a scripted fake LLM and a local fixture site).
 - **Frontend dev**: `cd web && pnpm install && pnpm dev` (proxies /api to :8787); `pnpm build` writes `web/dist`.
 
+## MCP connectors
+
+Agents can use tools from MCP servers. Put them in `data/mcp.json` (standard `mcpServers` format; stdio via
+`command`/`args`/`env`, or remote via `url`/`headers`; `"disabled": true` skips one), then restart or
+`POST /api/mcp/reload`. Status: `GET /api/mcp`. Tools appear as `mcp_<server>_<tool>` in `/api/tools` and agent
+tool pickers; results are wrapped as untrusted data. Tools without a read-only hint are flagged `side_effect`.
+
 ## Layout
 
 ```

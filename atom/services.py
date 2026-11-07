@@ -9,6 +9,7 @@ from .config import Settings
 from .db import Database
 from .events import EventBus
 from .llm import LLM
+from .mcp import McpManager
 from .runs import RunManager
 from .scheduler import SchedulerService
 from .settings_store import SettingsStore
@@ -25,7 +26,8 @@ class Services:
         eff = self.settings.effective()
         self.bus = EventBus(self.db)
         self.llm = llm or LLM(eff)
-        self.tool_names = list(build_tools())
+        self.tool_names = list(build_tools())          # mutated in place when MCP tools connect
+        self.mcp = McpManager(eff.data_dir / "mcp.json")
         self.agents = AgentStore(self.db, self.tool_names)
         self.schedules = ScheduleStore(self.db)
         self.runs = RunStore(self.db)
@@ -48,14 +50,22 @@ class Services:
             self.llm.reconfigure(eff)
         self.agent_runner.update_settings(eff)
 
+    async def refresh_mcp(self) -> None:
+        await self.mcp.reload()
+        base = list(build_tools())
+        self.tool_names[:] = base + list(self.mcp.tools)
+        self.agent_runner.all_tools = {**build_tools(), **self.mcp.tools}
+
     async def startup(self, *, scheduler: bool = True) -> None:
         self.agents.ensure_default()
+        await self.refresh_mcp()
         await self.run_manager.start()
         if scheduler:
             self.scheduler.start()
 
     async def shutdown(self) -> None:
         self.scheduler.shutdown()
+        await self.mcp.shutdown()
         await self.run_manager.shutdown()
         if hasattr(self.llm, "aclose"):
             await self.llm.aclose()
