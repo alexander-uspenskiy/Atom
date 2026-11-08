@@ -311,3 +311,30 @@ def test_file_ref_routing():
     assert ref({"document": {"file_id": "a", "file_name": "r.PDF", "mime_type": "application/octet-stream"}}) == ("a", "r.PDF")
     assert ref({"document": {"file_id": "b", "mime_type": "image/png"}}) == ("b", "")
     assert ref({"document": {"file_id": "c", "file_name": "x.xls", "mime_type": "application/vnd.ms-excel"}}) == (None, "")
+
+
+@pytest.mark.asyncio
+async def test_forward_only_when_job_asks_and_only_whitelisted(fake_tg):
+    cfg = {"bot_token": TOKEN, "allowed_user_ids": "42", "forward_user_ids": "77, 88"}
+    tool = tg.TelegramConnector().build_tools("bot", cfg)["telegram_bot_send"]
+    real = fake_tg.handler
+
+    def flaky(request):                           # 88 never pressed Start: Telegram refuses, the run must not fail
+        if b'"chat_id": 88' in request.content or b'"chat_id":88' in request.content:
+            return httpx.Response(403, json={"ok": False, "error_code": 403, "description": "Forbidden: bot can't initiate"})
+        return real(request)
+
+    fake_tg.handler = flaky
+    await tool.handler(None, {"text": "plain"})                       # no forward_to: owner only
+    assert [p["chat_id"] for p in fake_tg.sent()] == [42]
+    fake_tg.calls.clear()
+    out = await tool.handler(None, {"text": "hello", "forward_to": "77, 88, 42"})
+    assert sorted(p["chat_id"] for p in fake_tg.sent()) == [42, 77]   # 88 refused by Telegram; 42 not sent twice
+    assert "forwarded to 1/2" in str(out.text if hasattr(out, "text") else out)
+    fake_tg.calls.clear()
+    with pytest.raises(Exception, match="not in this connector"):     # an ID that is not whitelisted is rejected, nothing sent
+        await tool.handler(None, {"text": "x", "forward_to": "999"})
+    assert not fake_tg.sent()
+    assert tg.TelegramConnector().validate(cfg) is None
+    with pytest.raises(Exception):
+        tg.TelegramConnector().validate({**cfg, "forward_user_ids": "abc"})

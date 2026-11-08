@@ -389,6 +389,10 @@ class TelegramConnector(Connector):
         {"key": "allowed_user_ids", "label": "Allowed user IDs", "type": "text", "placeholder": "123456789",
          "help": "Comma-separated Telegram user IDs allowed to chat with Atom. Don't know yours? Save this connector "
                  "empty, message the bot once, and it replies with your ID. Nobody else can use the bot."},
+        {"key": "forward_user_ids", "label": "Forwarding recipients", "type": "text", "placeholder": "987654321",
+         "help": "Comma-separated Telegram user IDs a scheduled job may copy its message to. Nothing is forwarded unless the "
+                 "job's instruction says so (e.g. \"forward to 987654321\"); only IDs listed here are accepted. They cannot "
+                 "chat with Atom, and each must press Start in the bot once."},
         {"key": "allow_agent_send", "label": "Let agents message me", "type": "boolean", "default": True,
          "help": "Adds a telegram_<name>_send tool so scheduled runs can notify you. It only ever writes to the allowed users."},
     ]
@@ -397,6 +401,7 @@ class TelegramConnector(Connector):
         if not TOKEN_RE.match(cfg.get("bot_token", "")):
             raise Invalid("That doesn't look like a bot token (expected 123456789:ABC...). Get one from @BotFather.")
         parse_ids(cfg.get("allowed_user_ids"))
+        parse_ids(cfg.get("forward_user_ids"))
 
     async def test(self, cfg: dict[str, Any]) -> str:
         api = BotAPI(cfg["bot_token"])
@@ -419,12 +424,21 @@ class TelegramConnector(Connector):
         ids = parse_ids(cfg.get("allowed_user_ids"))
         if not (cfg.get("allow_agent_send", True) and ids):
             return {}
+        forwardable = parse_ids(cfg.get("forward_user_ids")) - ids
         tname = f"telegram_{_slug(name)}_send"
 
         async def send(ctx: ToolContext, a: dict) -> ToolOutput:
             text = str(a["text"]).strip()
             if not text:
                 raise ActionError("text is empty.")
+            copies: set[int] = set()
+            if str(a.get("forward_to") or "").strip():
+                want = parse_ids(a["forward_to"])
+                bad = want - forwardable - ids
+                if bad:
+                    raise ActionError(f"forward_to {sorted(bad)} is not in this connector's forwarding recipients "
+                                      f"({sorted(forwardable) or 'none configured'}). Nothing was sent.")
+                copies = want - ids
             shot = bool(a.get("include_screenshot")) and str(a.get("include_screenshot")).lower() != "false"
             jpg = await ctx.session.look() if shot else None       # fail before sending anything if there is no page
             api = BotAPI(cfg["bot_token"])
@@ -434,16 +448,29 @@ class TelegramConnector(Connector):
                         await api.send_photo(uid, jpg, text)          # long text goes out as a separate message
                     else:
                         await api.send(uid, text)
+                failed = 0
+                for uid in sorted(copies):                            # forwarded copies are best effort
+                    try:
+                        if jpg is not None:
+                            await api.send_photo(uid, jpg, text)
+                        else:
+                            await api.send(uid, text)
+                    except TelegramError as e:
+                        failed += 1
+                        log.warning("telegram forward to %s failed: %s", uid, e)
             except TelegramError as e:
                 raise ActionError(f"Telegram error: {e}") from None
             finally:
                 await api.aclose()
-            return ToolOutput(f"Sent to {len(ids)} Telegram user(s)" + (" with a screenshot." if jpg is not None else "."))
+            extra = f", forwarded to {len(copies) - failed}/{len(copies)}" if copies else ""
+            return ToolOutput(f"Sent to {len(ids)} Telegram user(s){extra}" + (" with a screenshot." if jpg is not None else "."))
 
         return {tname: ToolSpec(tname, "Send a Telegram message to the owner (e.g. to report a result or raise an alert). "
                                        "Plain text; set include_screenshot=true to attach a screenshot of the current page. "
-                                       "Only send what the user's task asks for.",
-                                {"text": {"type": "string"}, "include_screenshot": {"type": "boolean"}}, ["text"], send,
+                                       "Set forward_to (comma-separated Telegram user IDs) only when the task tells you to forward "
+                                       "the message to someone. Only send what the user's task asks for.",
+                                {"text": {"type": "string"}, "include_screenshot": {"type": "boolean"},
+                                 "forward_to": {"type": "string"}}, ["text"], send,
                                 side_effect=True)}
 
 

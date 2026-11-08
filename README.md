@@ -46,7 +46,7 @@ username ending in `bot`. In Settings → Connectors add a Telegram connector wi
 long-polls Telegram, so nothing is exposed to the internet. Only user IDs listed under "Allowed user IDs" can use it:
 save it empty, message the bot once, and it replies with your ID; then add the ID. Messages go to the dashboard assistant
 (one conversation per user, visible on the Chat page; `/new` starts a fresh one). Proposals (schedules, agents, ...) arrive
-with Approve / Reject buttons. Send a photo or a document (PDF, Word, Excel, CSV, Markdown, text file), optionally with a caption, and the assistant reads it, same as a file attached in the dashboard chat. Ask it to show you a run's screenshot and it sends the picture back. Agents can attach a page screenshot to `telegram_<name>_send` (`include_screenshot`). With "Let agents message me" on, agents get `telegram_<name>_send` to notify you from
+with Approve / Reject buttons. Send a photo or a document (PDF, Word, Excel, CSV, Markdown, text file), optionally with a caption, and the assistant reads it, same as a file attached in the dashboard chat. Ask it to show you a run's screenshot and it sends the picture back. Agents can attach a page screenshot to `telegram_<name>_send` (`include_screenshot`). "Forwarding recipients" lists Telegram user IDs (each must press Start in the bot once) that a job may copy its message to: only when the job's instruction says e.g. "forward to 987654321", and only IDs on that list; a failed copy never fails the run. With "Let agents message me" on, agents get `telegram_<name>_send` to notify you from
 scheduled runs. Private chats only.
 
 To add a connector type, subclass `Connector` in `atom/connectors/`, declare its `fields` (and `oauth` if it signs in
