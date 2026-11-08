@@ -603,8 +603,16 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             raise Invalid("effort must be low, medium or xhigh")
         proj = svc.conversations.project_of(cid)
         workdir = (proj or {}).get("folder") or (body.get("workdir") or "").strip() or None   # a project's folder wins
+        if body.get("mode") not in (None, "auto", "manual", "plan"):
+            raise Invalid("mode must be auto, manual or plan")
         return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images,
-                                                  workdir=workdir), request)
+                                                  workdir=workdir, mode=body.get("mode"), can_approve=True), request)
+
+    @app.post("/api/chat/approvals/{call_id}")
+    async def decide_approval(request: Request, call_id: str, body: dict = Body(...)):
+        if not svc_of(request).assistant.decide(call_id, bool(body.get("approve"))):
+            raise NotFound("no pending approval with that id (it may have timed out)")
+        return {"ok": True}
 
     # ------------------------------------------------------------------ stats
     @app.get("/api/stats/summary")

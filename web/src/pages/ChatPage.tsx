@@ -24,7 +24,8 @@ function loadPrefs(): ChatPrefs {
   try {
     const p = JSON.parse(lsGet(PREFS_KEY) ?? "null") as Partial<ChatPrefs> | null;
     const effort = p?.effort === "low" || p?.effort === "medium" || p?.effort === "xhigh" ? p.effort : "low";
-    return { thinking: p?.thinking === true, effort: effort as ChatEffort, workdir: typeof p?.workdir === "string" ? p.workdir : "" };
+    const mode = p?.mode === "manual" || p?.mode === "plan" ? p.mode : "auto";
+    return { thinking: p?.thinking === true, effort: effort as ChatEffort, workdir: typeof p?.workdir === "string" ? p.workdir : "", mode };
   } catch {
     return { thinking: false, effort: "low" };
   }
@@ -160,7 +161,7 @@ export default function ChatPage() {
       let gotEvent = false;
       let aborted = false;
       try {
-        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort, ...(prefs.workdir ? { workdir: prefs.workdir } : {}), ...(images.length ? { images } : {}) }, (ev) => {
+        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort, mode: prefs.mode ?? "auto", ...(prefs.workdir ? { workdir: prefs.workdir } : {}), ...(images.length ? { images } : {}) }, (ev) => {
           gotEvent = true;
           if (ev.type === "error") error = ev.detail ?? "The assistant returned an error.";
           dispatch({ t: "ev", ev });

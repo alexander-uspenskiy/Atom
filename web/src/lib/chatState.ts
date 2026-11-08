@@ -1,6 +1,6 @@
 import type { ChatEvent, MessageStats, PendingAction } from "../api/types";
 
-export interface ToolView { id: string; name: string; args?: unknown; ok?: boolean; result?: unknown; done: boolean }
+export interface ToolView { id: string; name: string; args?: unknown; ok?: boolean; result?: unknown; done: boolean; approval?: "pending" | "approved" | "denied" }
 export interface LiveMsg {
   key: string; reasoning: string; content: string; tools: ToolView[]; actions: PendingAction[];
   runIds: string[]; stats: MessageStats | null; ended: boolean;
@@ -63,6 +63,12 @@ export function turnReducer(s: LiveTurn, a: TurnAction): LiveTurn {
             return { ...m, tools };
           });
           break;
+        case "approval_required":
+        case "approval_resolved": {
+          const state = ev.type === "approval_required" ? "pending" : ev.approved ? "approved" : "denied";
+          msgs = msgs.map((m) => (m.tools.some((t) => t.id === ev.id) ? { ...m, tools: m.tools.map((t) => (t.id === ev.id ? { ...t, approval: state as ToolView["approval"] } : t)) } : m));
+          break;
+        }
         case "action_proposed":
           if (ev.action) upd((m) => (m.actions.some((x) => x.id === ev.action.id) ? m : { ...m, actions: [...m.actions, ev.action] }));
           break;

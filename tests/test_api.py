@@ -542,3 +542,50 @@ def test_user_and_project_skills(client, tmp_path):
     assert client.get(f"/api/skills/greet?project_id={proj['id']}").json()["body"] == "project hi"
     assert client.get("/api/skills/greet").json()["body"] == "hi"
     assert client.delete(f"/api/skills/lint?project_id={proj['id']}").status_code == 204
+
+
+# ---------------------------------------------------------------- chat modes
+def test_plan_mode_is_read_only(client, fake):
+    client.put("/api/settings", json={"values": {"terminal_enabled": True}})
+    conv = client.post("/api/conversations", json={}).json()
+    fake.push(
+        {"calls": [("run_command", {"command": "rm -rf build"}), ("run_command", {"command": "git status | head"}),
+                   ("run_agent", {"task": "x"}), ("propose_memory", {"content": "x"})]},
+        {"content": "Plan: 1. ..."})
+    events = read_sse(client, "POST", f"/api/conversations/{conv['id']}/messages",
+                      {"content": "clean up", "mode": "plan"})
+    results = [e for e in events if e["type"] == "tool_result"]
+    assert [r["ok"] for r in results][:1] == [False] and "Plan mode" in results[0]["result"]
+    assert results[1]["ok"] is True                              # read-only command is allowed
+    assert all(not r["ok"] for r in results[2:])
+    offered = fake.calls[0]["tools"]
+    assert "run_agent" not in offered and not any(n.startswith("propose_") for n in offered) and "run_command" in offered
+    assert "PLAN" in fake.calls[0]["messages"][0]["content"]
+    assert client.get("/api/status").json()["pending_actions"] == 0
+
+
+def test_manual_mode_asks_before_acting(client, fake):
+    import asyncio
+    from atom.assistant import Assistant
+
+    class Call:
+        id, name, arguments = "c1", "run_command", {"command": "ls"}
+
+    async def go(approve):
+        a = Assistant(client.app.state.svc) if hasattr(client.app.state, "svc") else Assistant(None)
+        q: asyncio.Queue = asyncio.Queue()
+        t = asyncio.create_task(a._gate(Call, "manual", q, True))
+        ev = await q.get()
+        assert ev["type"] == "approval_required" and ev["id"] == "c1"
+        assert a.decide("c1", approve)
+        return await t
+
+    assert asyncio.run(go(True)) is None
+    assert "denied" in asyncio.run(go(False))
+    assert client.post("/api/chat/approvals/nope", json={"approve": True}).status_code == 404
+
+
+def test_mode_validation_and_noninteractive_manual(client):
+    conv = client.post("/api/conversations", json={}).json()
+    r = client.post(f"/api/conversations/{conv['id']}/messages", json={"content": "hi", "mode": "yolo"})
+    assert r.status_code == 422 or r.status_code == 400

@@ -144,6 +144,9 @@ export const api = {
     req<ConversationInfo>("PUT", `/conversations/${encodeURIComponent(id)}`, { title }),
   deleteConversation: (id: string) => req<void>("DELETE", `/conversations/${encodeURIComponent(id)}`),
 
+  decideApproval: (callId: string, approve: boolean) =>
+    req<{ ok: boolean }>("POST", `/chat/approvals/${encodeURIComponent(callId)}`, { approve }),
+
   stats: (days: number) => req<StatsSummary>("GET", `/stats/summary${qs({ days })}`),
 };
 

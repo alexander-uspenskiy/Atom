@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import signal
 from pathlib import Path
 
@@ -26,6 +27,71 @@ def workdir(s: Settings, base: str | None = None) -> Path:
     d = Path(chosen).expanduser() if chosen else s.data_dir / "workspace"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def project_prompt(s: Settings, base: str | None = None) -> str:
+    """System-prompt section telling the model where its project directory is and to stay inside it."""
+    d = workdir(s, base)
+    return (f"Project directory: {d}\n"
+            "This is the project space. Do all coding and terminal commands inside it (the terminal starts there; "
+            "use paths relative to it), and save every file you create (code, documents, reports, artifacts) in it. "
+            + ("Commands that reference paths outside it are blocked." if s.terminal_restrict else
+               "Do not create, modify or delete files outside it unless the user explicitly asks."))
+
+
+_ALLOWED_PREFIXES = ("/dev/", "/bin/", "/usr/bin/", "/usr/local/bin/", "/opt/homebrew/bin/")
+_PATHISH = re.compile(r"""(?:^|[\s=:'"(<>|;&])((?:~[\w-]*|\.\.|/)[^\s'"():<>|;&]*)""")
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _check_command(command: str, base: Path, root: Path) -> None:
+    """Best-effort guardrail: refuse commands that point at paths outside the project folder."""
+    for m in _PATHISH.finditer(command):
+        tok = m.group(1)
+        if tok.startswith(_ALLOWED_PREFIXES) or tok == "/":
+            continue
+        if tok.startswith("~"):
+            p = Path(tok).expanduser()
+        elif tok.startswith("/"):
+            p = Path(tok)
+        else:                                    # starts with ..
+            p = base / tok
+        if not _inside(p, root):
+            raise TerminalError(
+                f"Blocked by the project-folder restriction: '{tok}' is outside the project folder {root}. "
+                "Work inside the project folder, or ask the user to turn off "
+                "'Restrict terminal to project folder' in Settings → Terminal.")
+
+
+_RO_CMDS = {"ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "pwd", "tree", "file", "stat", "du", "df",
+            "echo", "which", "whoami", "date", "env", "printenv", "sort", "uniq", "cut", "diff", "basename", "dirname",
+            "realpath", "find", "git"}
+_RO_GIT = {"status", "log", "diff", "show", "branch", "ls-files", "rev-parse", "remote", "blame", "grep", "describe", "tag"}
+_FORBIDDEN = re.compile(r"[<>;&`\n]|\$\(|\b-(?:exec|execdir|delete|ok|fprint\w*)\b")
+
+
+def is_read_only(command: str) -> bool:
+    """True only for simple inspection commands (ls, cat, grep, git status ...). Used by Plan mode."""
+    command = (command or "").strip()
+    if not command or _FORBIDDEN.search(command):
+        return False
+    for seg in command.split("|"):
+        words = seg.split()
+        if not words or words[0] not in _RO_CMDS:
+            return False
+        if words[0] == "git":
+            sub = next((w for w in words[1:] if not w.startswith("-")), "")
+            if sub not in _RO_GIT or (sub in ("branch", "tag", "remote") and len([w for w in words[2:] if not w.startswith("-")]) > 0
+                                       and not any(w in ("-l", "--list", "-v", "-a", "-r") for w in words)):
+                return False
+    return True
 
 
 def _clip(text: str) -> str:
@@ -51,6 +117,11 @@ async def run_command(s: Settings, command: str, timeout: int | None = None, cwd
         path = (base / cwd).expanduser() if not os.path.isabs(cwd) else Path(cwd)
         if not path.is_dir():
             raise TerminalError(f"cwd '{cwd}' is not a directory")
+    if s.terminal_restrict:
+        if not _inside(path, base):
+            raise TerminalError(f"Blocked by the project-folder restriction: cwd '{cwd}' is outside {base}. "
+                                "Turn off 'Restrict terminal to project folder' in Settings → Terminal to allow it.")
+        _check_command(command, path, base)
     proc = await asyncio.create_subprocess_shell(
         command, cwd=str(path), stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT, start_new_session=True)

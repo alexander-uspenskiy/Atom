@@ -134,7 +134,8 @@ export interface Message {
 export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number; project_id?: string | null }
 export interface Project { id: string; name: string; folder: string | null; chat_count?: number; updated_at?: number }
 export interface Conversation { id: string; title?: string | null; project_id?: string | null; messages: Message[] }
-export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[]; workdir?: string }
+export type ChatMode = "auto" | "manual" | "plan";
+export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[]; workdir?: string; mode?: ChatMode }
 export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string; kind: "image" | "document"; pages?: number; rows?: number; sheets?: number; chars?: number; scanned?: boolean }
 
 export type ChatEvent =
@@ -142,6 +143,8 @@ export type ChatEvent =
   | { type: "token"; channel: "content" | "reasoning"; text: string }
   | { type: "tool_call"; id?: string; name: string; arguments?: unknown }
   | { type: "tool_result"; id?: string; name?: string; ok?: boolean; result?: unknown }
+  | { type: "approval_required"; id: string; name: string; arguments?: unknown }
+  | { type: "approval_resolved"; id: string; approved: boolean }
   | { type: "action_proposed"; action: PendingAction }
   | { type: "run_started"; run_id: string }
   | ({ type: "llm_end" } & MessageStats)

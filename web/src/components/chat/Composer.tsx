@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Brain, FolderOpen, Send, Sparkles, Square, Wrench } from "lucide-react";
 import { useChatTools, useSkills, useTools } from "../../api/hooks";
-import type { Project } from "../../api/types";
+import type { ChatMode, Project } from "../../api/types";
 import { SkillList } from "../SkillList";
 import { ToolList } from "../ToolList";
 import { Dialog } from "../ui/Dialog";
@@ -12,7 +12,7 @@ import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi
 import { Switch } from "../ui/Switch";
 
 export type ChatEffort = "low" | "medium" | "xhigh";
-export interface ChatPrefs { thinking: boolean; effort: ChatEffort; workdir?: string }
+export interface ChatPrefs { thinking: boolean; effort: ChatEffort; workdir?: string; mode?: ChatMode }
 
 export function Composer({
   value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project,
@@ -76,6 +76,16 @@ export function Composer({
             Thinking
             <Switch checked={prefs.thinking} onChange={(thinking) => onPrefs({ ...prefs, thinking })} label="Thinking" />
           </label>
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted" title="Auto: runs commands on its own. Manual: you approve each command and run. Plan: read-only, only proposes a plan.">
+            Mode
+            <Segmented<ChatMode>
+              label="Mode"
+              size="sm"
+              value={prefs.mode ?? "auto"}
+              onChange={(mode) => onPrefs({ ...prefs, mode })}
+              options={[{ value: "auto", label: "Auto" }, { value: "manual", label: "Manual" }, { value: "plan", label: "Plan" }]}
+            />
+          </span>
           <span className="inline-flex items-center gap-1.5 text-xs text-muted">
             Effort
             <Segmented<ChatEffort>

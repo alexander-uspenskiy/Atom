@@ -61,7 +61,16 @@ SCHEMA: list[dict[str, Any]] = [
      "help": "Where commands start (chat, and agents without their own folder). Empty = data/workspace inside Atom."},
     {"key": "terminal_timeout_s", "label": "Terminal timeout (s)", "group": "Terminal", "type": "number",
      "min": 1, "max": 300, "step": 5, "help": "Default per-command time limit; commands are killed after it."},
+    {"key": "terminal_restrict", "label": "Restrict terminal to project folder", "group": "Terminal", "type": "boolean",
+     "help": "Guardrail (recommended). Commands must run inside the project folder, and commands that reference "
+             "paths outside it (absolute paths, ~, ..) are refused. This is a best-effort check, not a sandbox: "
+             "a determined script can still get around it."},
     # --- Assistant & memory ---
+    {"key": "chat_mode", "label": "Default chat mode", "group": "Assistant & memory", "type": "select",
+     "options": ["auto", "manual", "plan"],
+     "help": "Auto: the assistant runs commands and agents on its own. Manual: you approve every command and run "
+             "first, and proposals are never auto-approved. Plan: read-only; it can inspect and propose a plan but "
+             "cannot change anything. The chat box can override this per message."},
     {"key": "auto_approve_assistant_actions", "label": "Auto-approve assistant actions", "group": "Assistant & memory",
      "type": "boolean", "help": "OFF (recommended): the assistant only proposes schedules, agents, skills and memories; "
                                 "you approve them. ON: they are created immediately."},

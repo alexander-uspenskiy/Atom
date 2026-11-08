@@ -31,3 +31,26 @@ def test_base_folder_override(tmp_path):
     d.mkdir()
     text, ok = asyncio.run(run_command(_s(tmp_path), "pwd", base=str(d)))
     assert ok and str(d.resolve()) in text or str(d) in text
+
+
+def test_restrict_blocks_outside_paths(tmp_path):
+    s = _s(tmp_path)
+    for cmd in ("cat /etc/hosts", "ls ~", "ls ..", "echo x > /tmp/x", "cat ../secret"):
+        with pytest.raises(TerminalError, match="restriction"):
+            asyncio.run(run_command(s, cmd))
+    with pytest.raises(TerminalError, match="restriction"):
+        asyncio.run(run_command(s, "ls", cwd="/"))
+
+
+def test_restrict_allows_inside_and_system_bins(tmp_path):
+    s = _s(tmp_path)
+    text, ok = asyncio.run(run_command(s, "mkdir -p a && echo hi > a/f.txt && /bin/cat a/f.txt 2>/dev/null"))
+    assert ok and "hi" in text
+    inside = tmp_path / "workspace" / "a"
+    text, ok = asyncio.run(run_command(s, f"ls {inside}"))
+    assert ok
+
+
+def test_restrict_off_allows_outside(tmp_path):
+    text, ok = asyncio.run(run_command(_s(tmp_path, terminal_restrict=False), "ls /"))
+    assert ok

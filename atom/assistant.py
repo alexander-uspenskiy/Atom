@@ -105,6 +105,17 @@ RUN_COMMAND = _spec("run_command", "Run a shell command on the user's computer (
                     "Prefer read-only commands to inspect first; do not run destructive commands (rm -rf, force pushes, "
                     "disk or system changes) unless the user explicitly asked for that exact thing.",
                     {"command": S, "cwd": S, "timeout_s": {"type": "integer"}}, ["command"])
+MODES = ("auto", "manual", "plan")
+ACT_TOOLS = {"run_command", "run_agent"}                     # side effects outside the dashboard config
+APPROVAL_TIMEOUT_S = 600
+MODE_PROMPTS = {
+    "manual": ("Mode: MANUAL. The user approves each shell command and each agent run before it executes; a denied "
+               "call comes back as an error, so do not retry it, ask what they would prefer instead."),
+    "plan": ("Mode: PLAN (read-only). Do not change anything. You may inspect with read-only tools and simple "
+             "read-only shell commands (ls, cat, grep, git status/log/diff ...), but you cannot run agents, write "
+             "files or propose changes. Finish with a clear, numbered plan of what you would do (files, commands, "
+             "risks) and tell the user to switch to Auto or Manual mode to carry it out."),
+}
 MAX_HISTORY_IMAGE_MESSAGES = 2
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
 
@@ -112,6 +123,45 @@ TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
 class Assistant:
     def __init__(self, svc):
         self.svc = svc
+        self._pending: dict[str, asyncio.Future] = {}        # tool_call id -> user's approve/deny decision
+
+    def decide(self, call_id: str, approve: bool) -> bool:
+        """Resolve a pending manual-mode approval. False if nothing is waiting under that id."""
+        fut = self._pending.get(call_id)
+        if fut is None or fut.done():
+            return False
+        fut.set_result(bool(approve))
+        return True
+
+    async def _gate(self, c, mode: str, events: asyncio.Queue, can_approve: bool) -> str | None:
+        """Mode guardrail for one tool call. Returns None to proceed, or the refusal text to hand back to the model."""
+        name = c.name
+        if mode == "plan":
+            if name == "run_command":
+                from .terminal import is_read_only
+                if not is_read_only(str((c.arguments or {}).get("command", ""))):
+                    return ("Blocked: Plan mode only allows simple read-only commands (ls, cat, grep, git status/log/diff...). "
+                            "Describe the command in your plan instead.")
+                return None
+            if name in ACT_TOOLS or name.startswith("propose_"):
+                return f"Blocked: Plan mode is read-only, so {name} is not available. Put it in your plan instead."
+            return None
+        if mode == "manual" and name in ACT_TOOLS:
+            if not can_approve:
+                return f"Blocked: {name} needs the user's approval, and this channel cannot ask for it."
+            fut = asyncio.get_running_loop().create_future()
+            self._pending[c.id] = fut
+            await events.put({"type": "approval_required", "id": c.id, "name": name, "arguments": c.arguments})
+            try:
+                ok = await asyncio.wait_for(fut, APPROVAL_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                ok = False
+            finally:
+                self._pending.pop(c.id, None)
+            await events.put({"type": "approval_resolved", "id": c.id, "approved": ok})
+            if not ok:
+                return f"The user denied {name} (or did not answer in time). Do not retry it."
+        return None
 
     # ------------------------------------------------------------------ tools
     def _trigger(self, a: dict) -> dict:
@@ -153,7 +203,7 @@ class Assistant:
         raise NotFound("that run has no screenshots")
 
     async def _tool(self, name: str, a: dict, conv_id: str, events: asyncio.Queue,
-                    can_send_images: bool = False, workdir: str | None = None) -> tuple[str, dict]:
+                    can_send_images: bool = False, workdir: str | None = None, mode: str = "auto") -> tuple[str, dict]:
         """Execute one assistant tool. Returns (result_text, extras) where extras may hold action_id / run_id."""
         svc = self.svc
         eff = svc.settings.effective()
@@ -243,7 +293,7 @@ class Assistant:
             trig = normalize_trigger(p["trigger"], p["timezone"])      # raises Invalid -> message back to the model
             p["trigger"] = trig
             summary = f"Create schedule '{p['name']}': {describe(trig, p['timezone'])}"
-            action = await svc.executor.propose("create_schedule", summary, p, conversation_id=conv_id)
+            action = await svc.executor.propose("create_schedule", summary, p, conversation_id=conv_id, force_pending=mode == "manual")
         elif name == "propose_schedule_update":
             changes: dict[str, Any] = {}
             for k in ("name", "task", "timezone", "start_url", "agent"):
@@ -254,23 +304,23 @@ class Assistant:
             if not changes:
                 raise Invalid("nothing to change: give at least one field to update")
             action = await svc.executor.propose("update_schedule", f"Update schedule '{a['schedule']}'",
-                                                {"schedule": a["schedule"], "changes": changes}, conversation_id=conv_id)
+                                                {"schedule": a["schedule"], "changes": changes}, conversation_id=conv_id, force_pending=mode == "manual")
         elif name == "propose_schedule_delete":
             action = await svc.executor.propose("delete_schedule", f"Delete schedule '{a['schedule']}'",
-                                                {"schedule": a["schedule"]}, conversation_id=conv_id)
+                                                {"schedule": a["schedule"]}, conversation_id=conv_id, force_pending=mode == "manual")
         elif name == "propose_agent":
             action = await svc.executor.propose("create_agent", f"Create agent '{a['name']}'",
-                                                {k: v for k, v in a.items() if v not in (None, "")}, conversation_id=conv_id)
+                                                {k: v for k, v in a.items() if v not in (None, "")}, conversation_id=conv_id, force_pending=mode == "manual")
         elif name == "propose_skill":
             action = await svc.executor.propose("create_skill", f"Create skill '{a['name']}'",
                                                 {k: a.get(k, "") for k in ("name", "description", "when_to_use", "body")},
-                                                conversation_id=conv_id)
+                                                conversation_id=conv_id, force_pending=mode == "manual")
         elif name == "propose_memory":
             payload = {"content": a["content"], "title": a.get("title", ""), "tags": a.get("tags") or [],
                        "scope": a.get("scope") or "global", "pinned": bool(a.get("pinned", False)),
                        "source": "assistant"}
             action = await svc.executor.propose("save_memory", f"Remember: {str(a['content'])[:120]}", payload,
-                                                conversation_id=conv_id)
+                                                conversation_id=conv_id, force_pending=mode == "manual")
         else:
             raise Invalid(f"unknown tool '{name}'")
         await events.put({"type": "action_proposed", "action": action})
@@ -280,14 +330,19 @@ class Assistant:
                            "result": action.get("result")}), {"action_id": action["id"]}
 
     # ------------------------------------------------------------------ conversation
-    def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None) -> list[dict]:
+    def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None,
+                 mode: str = "auto") -> list[dict]:
         msgs = self.svc.conversations.get(conv_id)["messages"][-40:]
         while msgs and msgs[0]["role"] == "tool":
             msgs = msgs[1:]
         sys = SYSTEM + f"\n\nUser's timezone: {self.svc.settings.effective().timezone}."
+        if mode in MODE_PROMPTS:
+            sys += "\n\n" + MODE_PROMPTS[mode]
         if can_send_images:
             sys += ("\n\nThis chat is on Telegram, which can show images: when the user asks to see a page, a run's "
                     "screenshot or an image they sent, use send_image instead of describing it.")
+        from .terminal import project_prompt
+        sys += "\n\n" + project_prompt(self.svc.settings.effective(), workdir)
         cat = [k for k in self.svc.skills.list(workdir) if k["enabled"]]
         if cat:
             sys += "\n\nSkills you can load with use_skill(name) when relevant:\n" + "\n".join(
@@ -322,11 +377,15 @@ class Assistant:
 
     async def converse(self, conv_id: str, content: str, thinking: bool | None = None,
                        effort: str | None = None, images: list[str] | None = None,
-                       can_send_images: bool = False, workdir: str | None = None) -> AsyncIterator[dict]:
+                       can_send_images: bool = False, workdir: str | None = None, mode: str | None = None,
+                       can_approve: bool = False) -> AsyncIterator[dict]:
         svc = self.svc
         if not svc.conversations.exists(conv_id):
             raise NotFound(f"conversation {conv_id} not found")
         eff = svc.settings.effective()
+        mode = mode or eff.chat_mode
+        if mode not in MODES:
+            raise Invalid(f"mode must be one of {', '.join(MODES)}")
         think = eff.chat_thinking if thinking is None else bool(thinking)
         effort = effort or eff.chat_effort
         conv = svc.conversations.get(conv_id)
@@ -339,7 +398,7 @@ class Assistant:
             svc.conversations.rename(conv_id, content.strip().replace("\n", " ")[:60] or (svc.uploads.label(images) if images else "Chat"))
 
         events: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir))
+        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir, mode, can_approve))
         try:
             while True:
                 ev = await events.get()
@@ -359,14 +418,18 @@ class Assistant:
         return tools
 
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,
-                    can_send_images: bool = False, workdir: str | None = None) -> None:
+                    can_send_images: bool = False, workdir: str | None = None, mode: str = "auto",
+                    can_approve: bool = False) -> None:
         svc = self.svc
         tools = self.tool_specs(can_send_images)
+        if mode == "plan":          # don't even offer tools that cannot run in Plan mode
+            tools = [x for x in tools if x["function"]["name"] not in ACT_TOOLS - {"run_command"}
+                     and not x["function"]["name"].startswith("propose_")]
         names = {t["function"]["name"] for t in tools}
         acc = {"content": "", "reasoning": ""}            # everything streamed in the current model call
         try:
             for _ in range(6):
-                messages = self._history(conv_id, can_send_images, workdir)
+                messages = self._history(conv_id, can_send_images, workdir, mode)
                 buf = {"content": "", "reasoning": ""}
                 acc = {"content": "", "reasoning": ""}
                 last = time.monotonic()
@@ -409,9 +472,11 @@ class Assistant:
                         text, ok = f"Could not parse arguments: {c.parse_error}", False
                     elif c.name not in names:
                         text, ok = f"Unknown tool '{c.name}'.", False
+                    elif (refusal := await self._gate(c, mode, events, can_approve)) is not None:
+                        text, ok = refusal, False
                     else:
                         try:
-                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir)
+                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode)
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
                     tmsg = svc.conversations.append(conv_id, "tool", text, tool_call_id=c.id,

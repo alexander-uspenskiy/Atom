@@ -20,13 +20,14 @@ class ActionExecutor:
         self.skills, self.memory, self.settings, self.bus = skills, memory, settings, bus
 
     async def propose(self, kind: str, summary: str, payload: dict, *, created_by: str = "assistant",
-                      conversation_id: str | None = None, run_id: str | None = None) -> dict:
+                      conversation_id: str | None = None, run_id: str | None = None,
+                      force_pending: bool = False) -> dict:
         if kind not in KINDS:
             raise Invalid(f"unknown action kind '{kind}'")
         self.validate(kind, payload)          # reject bad proposals up-front so the model can fix them
         action = self.actions.create(kind, summary, payload, created_by=created_by, conversation_id=conversation_id,
                                      run_id=run_id)
-        if self.settings.effective().auto_approve_assistant_actions:
+        if not force_pending and self.settings.effective().auto_approve_assistant_actions:
             return await self.approve(action["id"])
         self.bus.publish_global("action_pending", action=action)
         return action

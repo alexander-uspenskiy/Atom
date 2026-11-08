@@ -62,9 +62,11 @@ class Settings(BaseSettings):
     terminal_enabled: bool = False
     terminal_dir: str = ""           # working directory; empty = data/workspace
     terminal_timeout_s: int = 60
+    terminal_restrict: bool = True   # guardrail: commands must stay inside the project folder
 
     # --- Assistant / memory ---
     auto_approve_assistant_actions: bool = False
+    chat_mode: str = "auto"            # default chat mode: auto | manual | plan
     memory_inject_k: int = 4
     timezone: str = _local_tz()
 

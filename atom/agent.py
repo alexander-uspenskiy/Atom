@@ -143,6 +143,9 @@ class Agent:
             sp += LOOK_PROMPT
         if vs:
             sp += "\n\n" + vs.prompt_section()
+        if tools is not None and "terminal" in tools:
+            from .terminal import project_prompt
+            sp += "\n\n" + project_prompt(self.s, cfg.workdir)
         if cfg.agent.get("instructions"):
             sp += f"\n\nAdditional instructions for this agent:\n{cfg.agent['instructions'].strip()}"
         if cfg.skill_names and self.skills is not None:

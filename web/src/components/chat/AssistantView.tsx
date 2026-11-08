@@ -3,7 +3,9 @@ import { Brain, ChevronRight, Play, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { MessageStats, PendingAction } from "../../api/types";
 import type { ToolView } from "../../lib/chatState";
+import { api } from "../../api/client";
 import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
 import { CodeBlock } from "../ui/CodeBlock";
 import { Markdown } from "../ui/Markdown";
 import { ApprovalCard } from "../ApprovalCard";
@@ -57,8 +59,15 @@ export function ToolCard({ t }: { t: ToolView }) {
         <Wrench className="h-3.5 w-3.5 shrink-0 text-info" aria-hidden />
         <span className="font-mono text-xs font-semibold">{t.name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">{argsPreview(t.args, 100)}</span>
-        {!t.done ? <Badge tone="info" dot pulse>running</Badge> : t.ok === false ? <Badge tone="err">error</Badge> : <Badge tone="ok">ok</Badge>}
+        {t.approval === "pending" ? <Badge tone="warn" dot pulse>needs approval</Badge> : t.approval === "denied" ? <Badge tone="err">denied</Badge> : !t.done ? <Badge tone="info" dot pulse>running</Badge> : t.ok === false ? <Badge tone="err">error</Badge> : <Badge tone="ok">ok</Badge>}
       </button>
+      {t.approval === "pending" && (
+        <div className="flex items-center gap-2 border-t border-line px-3 py-2" role="group" aria-label="Approve tool call">
+          <span className="flex-1 text-xs text-muted">Manual mode: run this?</span>
+          <Button size="sm" variant="primary" onClick={() => void api.decideApproval(t.id, true).catch(() => undefined)}>Approve</Button>
+          <Button size="sm" onClick={() => void api.decideApproval(t.id, false).catch(() => undefined)}>Deny</Button>
+        </div>
+      )}
       {open && (
         <div className="space-y-1 border-t border-line px-3 py-2">
           {t.args !== undefined && t.args !== null && <CodeBlock code={prettyJSON(t.args)} lang="args" maxHeight="10rem" className="!my-0" />}
