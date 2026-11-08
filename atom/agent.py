@@ -62,6 +62,7 @@ class RunConfig:
     effort: str = "low"             # low | medium | xhigh
     temperature: float | None = None
     profile: Path | None = None
+    workdir: str | None = None      # terminal working folder (agent setting; falls back to the global one)
     tool_names: list[str] | None = None
     skill_names: list[str] = field(default_factory=list)
     memory_scope: str = "global"    # none | global | agent
@@ -125,6 +126,10 @@ class Agent:
             tools.pop("look", None)
         if cfg.tool_names is not None:
             tools = {n: t for n, t in tools.items() if n in cfg.tool_names or n in ("done",)}
+        # Shell access is opt-in twice: the global setting, and the agent must list `terminal` explicitly
+        # ("All tools" does not include it).
+        if cfg.tool_names is None or "terminal" not in cfg.tool_names or not self.s.terminal_enabled:
+            tools.pop("terminal", None)
         if not cfg.skill_names:
             tools.pop("use_skill", None)
         if cfg.memory_scope == "none":
@@ -174,7 +179,7 @@ class Agent:
         scopes, write_scope = self._scopes(cfg)
         ctx = ToolContext(session=session, llm=self.llm, settings=s, agent=cfg.agent, run_id=run_id,
                           skills=self.skills, memory=self.memory, actions=self.actions,
-                          skill_names=cfg.skill_names, memory_scopes=scopes, memory_write_scope=write_scope)
+                          workdir=cfg.workdir, skill_names=cfg.skill_names, memory_scopes=scopes, memory_write_scope=write_scope)
         t_start = time.perf_counter()
         sidx = 0                       # sequential row index for the steps table
         llm_n = 0                      # LLM call counter (the "step" in events)

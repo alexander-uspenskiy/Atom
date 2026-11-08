@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS agents (
   start_url TEXT, allowed_domains TEXT DEFAULT '[]', allow_private INTEGER DEFAULT 0,
   tools TEXT, skills TEXT DEFAULT '[]', memory_scope TEXT DEFAULT 'global',
   thinking TEXT DEFAULT 'inherit', effort TEXT DEFAULT 'inherit', max_steps INTEGER, temperature REAL,
-  profile TEXT, is_default INTEGER DEFAULT 0, created_at REAL, updated_at REAL
+  profile TEXT, is_default INTEGER DEFAULT 0, created_at REAL, updated_at REAL, workdir TEXT
 );
 CREATE TABLE IF NOT EXISTS schedules (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, agent_id TEXT NOT NULL, task TEXT NOT NULL, start_url TEXT,
@@ -113,6 +113,9 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(messages)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(agents)")}
+        if "workdir" not in cols:
+            self.conn.execute("ALTER TABLE agents ADD COLUMN workdir TEXT")
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(schedules)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE schedules ADD COLUMN images TEXT")

@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     block_resources: tuple[str, ...] = ("image", "media", "font")
     profile_dir: Path = ROOT / "data" / "profile"
 
+    # --- Terminal (shell access for agents and chat; off by default) ---
+    terminal_enabled: bool = False
+    terminal_dir: str = ""           # working directory; empty = data/workspace
+    terminal_timeout_s: int = 60
+
     # --- Assistant / memory ---
     auto_approve_assistant_actions: bool = False
     memory_inject_k: int = 4

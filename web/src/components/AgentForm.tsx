@@ -7,6 +7,7 @@ import { errMsg } from "../lib/format";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
 import { ChipsInput, Field, MultiSelect } from "./ui/Fields";
+import { FolderPicker } from "./ui/FolderPicker";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
 import { useToast } from "./ui/Toast";
@@ -45,7 +46,7 @@ export function OptionalNumber({
 
 const blank: AgentInput = {
   name: "", description: "", instructions: "", start_url: null, allowed_domains: [], allow_private: false,
-  tools: null, skills: [], memory_scope: "agent", thinking: "inherit", effort: "inherit", max_steps: null, temperature: null, profile: null,
+  tools: null, skills: [], memory_scope: "agent", thinking: "inherit", effort: "inherit", max_steps: null, temperature: null, profile: null, workdir: null,
 };
 
 export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: () => void; agent?: Agent | null }) {
@@ -82,6 +83,7 @@ export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: ()
       name: f.name.trim(),
       start_url: f.start_url?.trim() || null,
       profile: f.profile?.trim() || null,
+      workdir: f.workdir?.trim() || null,
       description: f.description ?? "",
       instructions: f.instructions ?? "",
     });
@@ -155,6 +157,9 @@ export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: ()
           </Field>
           <Field label="Temperature">
             <OptionalNumber label="Temperature" min={0} max={2} step={0.05} value={f.temperature ?? null} onChange={(v) => set("temperature", v)} />
+          </Field>
+          <Field label="Working folder" htmlFor="ag-wd" hint="Where this agent's terminal commands start. Empty = the global folder in Settings → Terminal. Needs the terminal tool selected.">
+            <FolderPicker id="ag-wd" value={f.workdir ?? ""} onChange={(v) => set("workdir", v)} />
           </Field>
           <Field label="Browser profile" htmlFor="ag-prof" hint="Optional persistent profile name">
             <input id="ag-prof" className="input" value={f.profile ?? ""} onChange={(e) => set("profile", e.target.value)} />

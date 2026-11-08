@@ -70,6 +70,7 @@ export const api = {
   updateAgent: (id: string, a: AgentInput) => req<Agent>("PUT", `/agents/${encodeURIComponent(id)}`, a),
   deleteAgent: (id: string) => req<void>("DELETE", `/agents/${encodeURIComponent(id)}`),
   tools: () => req<ToolInfo[]>("GET", "/tools"),
+  fsDirs: (path: string) => req<{ path: string; parent: string | null; home: string; dirs: string[] }>("GET", `/fs/dirs?path=${encodeURIComponent(path)}`),
   mcp: () => req<McpStatus>("GET", "/mcp"),
   mcpReload: () => req<McpStatus>("POST", "/mcp/reload"),
   mcpSave: (name: string, cfg: McpServerConfig) => req<McpStatus>("PUT", `/mcp/servers/${encodeURIComponent(name)}`, cfg),

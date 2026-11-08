@@ -13,7 +13,7 @@ export interface Status {
   pending_actions?: number;
 }
 
-export type SettingType = "text" | "number" | "boolean" | "select" | "slider";
+export type SettingType = "text" | "number" | "boolean" | "select" | "slider" | "folder";
 export interface SettingField {
   key: string; label: string; group?: string; type: SettingType;
   options?: string[]; min?: number; max?: number; step?: number; help?: string;
@@ -30,7 +30,7 @@ export interface Agent {
   start_url?: string | null; allowed_domains?: string[] | null; allow_private?: boolean;
   tools?: string[] | null; skills?: string[] | null; memory_scope?: "none" | "global" | "agent";
   thinking?: Thinking; effort?: Effort; max_steps?: number | null; temperature?: number | null;
-  profile?: string | null; is_default?: boolean; created_at?: number; updated_at?: number;
+  profile?: string | null; workdir?: string | null; is_default?: boolean; created_at?: number; updated_at?: number;
 }
 export type AgentInput = Omit<Agent, "id" | "created_at" | "updated_at" | "is_default">;
 export interface ToolInfo { name: string; description?: string; side_effect?: boolean }

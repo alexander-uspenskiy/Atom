@@ -1,6 +1,7 @@
 """Runtime-editable settings: defaults come from config.Settings, overrides live in the DB."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .config import Settings
@@ -51,6 +52,15 @@ SCHEMA: list[dict[str, Any]] = [
     {"key": "agent_vision", "label": "Agents can look at pages", "group": "Browser", "type": "boolean",
      "help": "Adds a `look` tool that shows the model a screenshot of the page (needs the vision projector). "
              "Page images are loaded for those runs, and each screenshot costs about 1-2k prompt tokens."},
+    # --- Terminal ---
+    {"key": "terminal_enabled", "label": "Enable terminal", "group": "Terminal", "type": "boolean",
+     "help": "Lets the chat assistant (run_command) and agents that have the `terminal` tool selected run shell "
+             "commands as your user. Agents never get it from 'All tools'. Agents read untrusted web pages, so "
+             "only enable this on a machine you trust."},
+    {"key": "terminal_dir", "label": "Terminal working folder", "group": "Terminal", "type": "folder",
+     "help": "Where commands start (chat, and agents without their own folder). Empty = data/workspace inside Atom."},
+    {"key": "terminal_timeout_s", "label": "Terminal timeout (s)", "group": "Terminal", "type": "number",
+     "min": 1, "max": 300, "step": 5, "help": "Default per-command time limit; commands are killed after it."},
     # --- Assistant & memory ---
     {"key": "auto_approve_assistant_actions", "label": "Auto-approve assistant actions", "group": "Assistant & memory",
      "type": "boolean", "help": "OFF (recommended): the assistant only proposes schedules, agents, skills and memories; "
@@ -89,6 +99,11 @@ def _coerce(spec: dict, value: Any) -> Any:
         if value not in spec["options"]:
             raise SettingsError(f"{spec['key']}: must be one of {spec['options']}")
         return value
+    if t == "folder":
+        v = str(value or "").strip()
+        if v and not Path(v).expanduser().is_dir():
+            raise SettingsError(f"{spec['key']}: '{v}' is not an existing folder")
+        return v
     return str(value).strip()
 
 

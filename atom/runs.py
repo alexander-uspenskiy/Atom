@@ -41,7 +41,7 @@ class RunManager:
             agent=agent, start_url=start_url or agent.get("start_url"),
             allowed_domains=agent["allowed_domains"] or None, allow_private=agent["allow_private"],
             max_steps=int(ov.get("max_steps") or agent.get("max_steps") or s.max_steps), thinking=thinking,
-            effort=effort, temperature=agent.get("temperature"), profile=profile, tool_names=agent["tools"],
+            effort=effort, temperature=agent.get("temperature"), profile=profile, workdir=agent.get("workdir"), tool_names=agent["tools"],
             skill_names=list(agent["skills"]), memory_scope=agent["memory_scope"], trigger=trigger,
             schedule_id=schedule_id)
 

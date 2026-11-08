@@ -13,6 +13,7 @@ import { Card, CardHeader } from "../components/ui/Card";
 import { Select } from "../components/ui/Select";
 import { ErrorState, Loading } from "../components/ui/Spinner";
 import { Switch } from "../components/ui/Switch";
+import { FolderPicker } from "../components/ui/FolderPicker";
 import { useToast } from "../components/ui/Toast";
 import { errMsg } from "../lib/format";
 import { cn } from "../lib/cn";
@@ -36,6 +37,8 @@ function Control({ f, value, onChange }: { f: SettingField; value: SettingValue 
         </div>
       );
     }
+    case "folder":
+      return <FolderPicker id={id} value={String(value ?? "")} onChange={onChange} />;
     case "number":
       return (
         <input id={id} type="number" className="input w-32" min={f.min} max={f.max} step={f.step} value={value === null || value === undefined ? "" : String(value)} onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} />

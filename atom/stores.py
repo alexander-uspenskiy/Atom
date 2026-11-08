@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from .db import Database, jdump, jload, new_id, now
@@ -37,7 +38,7 @@ class AgentStore:
                 "allowed_domains": jload(r["allowed_domains"], []), "allow_private": bool(r["allow_private"]),
                 "tools": jload(r["tools"], None), "skills": jload(r["skills"], []), "memory_scope": r["memory_scope"],
                 "thinking": r["thinking"], "effort": r["effort"], "max_steps": r["max_steps"],
-                "temperature": r["temperature"], "profile": r["profile"], "is_default": bool(r["is_default"]),
+                "temperature": r["temperature"], "profile": r["profile"], "workdir": r["workdir"], "is_default": bool(r["is_default"]),
                 "created_at": r["created_at"], "updated_at": r["updated_at"]}
 
     def _clean(self, d: dict, partial: bool = False) -> dict:
@@ -50,6 +51,13 @@ class AgentStore:
         for k in ("description", "instructions", "start_url", "profile"):
             if k in d:
                 out[k] = (d[k] or None) if k in ("start_url", "profile") else (d[k] or "")
+        if "workdir" in d:
+            wd = str(d["workdir"] or "").strip()
+            if wd:
+                wd = str(Path(wd).expanduser())
+                if not Path(wd).is_dir():
+                    raise Invalid(f"working folder '{wd}' does not exist")
+            out["workdir"] = wd or None
         if "allowed_domains" in d:
             doms = [str(x).strip().lower() for x in (d["allowed_domains"] or []) if str(x).strip()]
             out["allowed_domains"] = jdump(doms)
@@ -123,7 +131,7 @@ class AgentStore:
         aid, t = new_id(), now()
         row = {"id": aid, "description": "", "instructions": "", "start_url": None, "allowed_domains": "[]",
                "allow_private": 0, "tools": None, "skills": "[]", "memory_scope": "global", "thinking": "inherit",
-               "effort": "inherit", "max_steps": None, "temperature": None, "profile": None,
+               "effort": "inherit", "max_steps": None, "temperature": None, "profile": None, "workdir": None,
                "is_default": int(is_default), "created_at": t, "updated_at": t, **c}
         cols = ",".join(row)
         self.db.execute(f"INSERT INTO agents ({cols}) VALUES ({','.join('?' * len(row))})", list(row.values()))

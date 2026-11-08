@@ -201,6 +201,20 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         svc.settings.update(body.get("values") or {})
         return svc.settings.payload()
 
+    @app.get("/api/fs/dirs")
+    async def fs_dirs(path: str = Query("")):
+        """Subfolders of `path` (default: home) for the working-folder picker. The server is local-only."""
+        p = Path(path or "~").expanduser()
+        if not p.is_dir():
+            raise HTTPException(404, f"'{path}' is not a folder")
+        p = p.resolve()
+        try:
+            names = sorted((c.name for c in p.iterdir() if c.is_dir() and not c.name.startswith(".")), key=str.lower)
+        except PermissionError:
+            raise HTTPException(403, "no permission to read that folder") from None
+        return {"path": str(p), "parent": str(p.parent) if p.parent != p else None, "home": str(Path.home()),
+                "dirs": names[:500]}
+
     # ------------------------------------------------------------------ agents
     @app.get("/api/tools")
     async def list_tools(request: Request):
