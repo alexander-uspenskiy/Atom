@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { ToolInfo } from "../api/types";
+import { cn } from "../lib/cn";
 import { Badge } from "./ui/Badge";
 
 export function ToolList({ tools, filterable = true }: { tools: ToolInfo[]; filterable?: boolean }) {
@@ -25,9 +26,10 @@ export function ToolList({ tools, filterable = true }: { tools: ToolInfo[]; filt
       )}
       <ul className="divide-y divide-line/70 rounded-md border border-line">
         {shown.map((t) => (
-          <li key={t.name} className="px-3 py-2">
+          <li key={t.name} className={cn("px-3 py-2", t.enabled === false && "opacity-50")}>
             <div className="flex items-center gap-2">
               <code className="text-xs font-semibold">{t.name}</code>
+              {t.enabled === false && <Badge>disabled in Settings</Badge>}
               {t.side_effect && <Badge tone="warn">side effects</Badge>}
             </div>
             {t.description && <p className="mt-0.5 text-xs text-muted">{t.description}</p>}

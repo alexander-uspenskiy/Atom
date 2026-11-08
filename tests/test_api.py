@@ -495,3 +495,25 @@ def test_gmail_oauth_sign_in_flow(client, svc, monkeypatch, _memory_keyring):
     assert out.ok and used["mech"] == "XOAUTH2" and used["auth"] == "user=me@gmail.com\x01auth=Bearer at-1\x01\x01"
     assert client.post("/api/connectors/g/oauth/signout").json()["items"][0]["state"] == "needs_auth"
     assert _memory_keyring.get_password("atom-connector", "g:oauth_refresh_token") is None
+
+
+def test_projects_group_chats_and_set_folder(client, tmp_path):
+    folder = tmp_path / "proj"
+    folder.mkdir()
+    assert client.post("/api/projects", json={"name": " "}).status_code == 422
+    assert client.post("/api/projects", json={"name": "X", "folder": str(tmp_path / "nope")}).status_code == 422
+    p = client.post("/api/projects", json={"name": "Site", "folder": str(folder)}).json()
+    assert p["folder"] == str(folder.resolve())
+    c = client.post("/api/conversations", json={"project_id": p["id"]}).json()
+    assert c["project_id"] == p["id"]
+    assert client.post("/api/conversations", json={"project_id": "nope"}).status_code == 404
+    assert client.get(f"/api/conversations/{c['id']}").json()["project_id"] == p["id"]
+    assert client.get("/api/projects").json()[0]["chat_count"] == 1
+    other = client.post("/api/conversations", json={}).json()
+    client.put(f"/api/conversations/{other['id']}", json={"project_id": p["id"]})
+    assert client.get("/api/projects").json()[0]["chat_count"] == 2
+    upd = client.put(f"/api/projects/{p['id']}", json={"name": "Site 2", "folder": ""}).json()
+    assert upd["name"] == "Site 2" and upd["folder"] is None
+    assert client.delete(f"/api/projects/{p['id']}").status_code == 204
+    chats = {x["id"]: x["project_id"] for x in client.get("/api/conversations").json()}
+    assert chats == {c["id"]: None, other["id"]: None}

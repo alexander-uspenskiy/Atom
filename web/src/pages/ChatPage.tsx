@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquarePlus, MessagesSquare, Trash2 } from "lucide-react";
+import { FolderGit2, MessageSquarePlus, MessagesSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, streamChat } from "../api/client";
-import { qk, useActions, useConversations } from "../api/hooks";
-import type { Message, PendingAction } from "../api/types";
+import { qk, useActions, useConversations, useProjects } from "../api/hooks";
+import type { ConversationInfo, Message, PendingAction, Project } from "../api/types";
 import { emptyTurn, turnReducer, type ToolView } from "../lib/chatState";
 import { lsGet, lsSet } from "../lib/storage";
 import { errMsg, fmtRelative, truncate } from "../lib/format";
@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { AssistantView, type AsstView } from "../components/chat/AssistantView";
 import { Composer, type ChatEffort, type ChatPrefs } from "../components/chat/Composer";
+import { ProjectDialog } from "../components/chat/ProjectDialog";
 import { DropOverlay, ImageGrid, useAttachments, useDropImages } from "../components/chat/Attachments";
 
 const PREFS_KEY = "atom-chat-prefs";
@@ -23,7 +24,7 @@ function loadPrefs(): ChatPrefs {
   try {
     const p = JSON.parse(lsGet(PREFS_KEY) ?? "null") as Partial<ChatPrefs> | null;
     const effort = p?.effort === "low" || p?.effort === "medium" || p?.effort === "xhigh" ? p.effort : "low";
-    return { thinking: p?.thinking === true, effort: effort as ChatEffort };
+    return { thinking: p?.thinking === true, effort: effort as ChatEffort, workdir: typeof p?.workdir === "string" ? p.workdir : "" };
   } catch {
     return { thinking: false, effort: "low" };
   }
@@ -109,6 +110,9 @@ export default function ChatPage() {
   const [params, setParams] = useSearchParams();
   const convId = params.get("c");
   const conversations = useConversations();
+  const projectsQ = useProjects();
+  const [projDialog, setProjDialog] = useState<{ project: Project | null } | null>(null);
+  const [projToDelete, setProjToDelete] = useState<Project | null>(null);
   const actionsQ = useActions();
   const convQ = useQuery({ queryKey: qk.conversation(convId ?? ""), queryFn: () => api.conversation(convId as string), enabled: !!convId });
   const [turn, dispatch] = useReducer(turnReducer, emptyTurn);
@@ -135,7 +139,7 @@ export default function ChatPage() {
       let id = forConv ?? convId;
       try {
         if (!id) {
-          const c = await api.createConversation(null);
+          const c = await api.createConversation(null, params.get("p"));
           id = c.id;
           setParams({ c: id }, { replace: true });
           void qc.invalidateQueries({ queryKey: qk.conversations });
@@ -156,7 +160,7 @@ export default function ChatPage() {
       let gotEvent = false;
       let aborted = false;
       try {
-        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort, ...(images.length ? { images } : {}) }, (ev) => {
+        await streamChat(id, { content, thinking: prefs.thinking, effort: prefs.effort, ...(prefs.workdir ? { workdir: prefs.workdir } : {}), ...(images.length ? { images } : {}) }, (ev) => {
           gotEvent = true;
           if (ev.type === "error") error = ev.detail ?? "The assistant returned an error.";
           dispatch({ t: "ev", ev });
@@ -186,7 +190,7 @@ export default function ChatPage() {
         if (!gotEvent) setDraft(content); // nothing was received: let the user retry
       }
     },
-    [convId, prefs, qc, setParams, toast, attachments],
+    [convId, params, prefs, qc, setParams, toast, attachments],
   );
 
   // Prefill / auto-send from router state or ?prompt=
@@ -244,6 +248,35 @@ export default function ChatPage() {
   };
 
   const list = conversations.data ?? [];
+  const projects = projectsQ.data ?? [];
+  const activeProjectId = convId ? (convQ.data?.project_id ?? list.find((c) => c.id === convId)?.project_id ?? null) : params.get("p");
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
+  const delProject = async () => {
+    if (!projToDelete) return;
+    try {
+      await api.deleteProject(projToDelete.id);
+      void qc.invalidateQueries({ queryKey: qk.projects });
+      void qc.invalidateQueries({ queryKey: qk.conversations });
+      if (params.get("p") === projToDelete.id) setParams({}, { replace: true });
+      toast.success("Project deleted (its chats were kept)");
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+    setProjToDelete(null);
+    setProjDialog(null);
+  };
+  const chatRow = (c: ConversationInfo) => (
+    <div key={c.id} className={cn("group flex items-center gap-1 rounded-md pr-1", c.id === convId ? "bg-accent/10" : "hover:bg-surface2")}>
+      <button type="button" className="min-w-0 flex-1 px-2 py-1.5 text-left" aria-current={c.id === convId} onClick={() => setParams({ c: c.id })}>
+        <div className={cn("truncate text-sm", c.id === convId && "font-medium text-accent")}>{truncate(c.title, 60) || "Untitled chat"}</div>
+        <div className="text-[11px] text-muted">{c.message_count ?? 0} msgs · {fmtRelative(c.updated_at)}</div>
+      </button>
+      <IconButton label="Delete conversation" className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100" onClick={() => setToDelete(c.id)}>
+        <Trash2 className="h-3.5 w-3.5" />
+      </IconButton>
+    </div>
+  );
+  const loose = list.filter((c) => !c.project_id || !projects.some((p) => p.id === c.project_id));
 
   return (
     <Page
@@ -257,6 +290,9 @@ export default function ChatPage() {
             <Button className="w-full" icon={<MessageSquarePlus className="h-4 w-4" />} onClick={() => setParams({}, { replace: false })}>
               New chat
             </Button>
+            <Button className="mt-1.5 w-full" icon={<FolderGit2 className="h-4 w-4" />} onClick={() => setProjDialog({ project: null })}>
+              New project
+            </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
             {conversations.isLoading && <Loading />}
@@ -264,25 +300,28 @@ export default function ChatPage() {
             {!conversations.isLoading && !conversations.error && list.length === 0 && (
               <p className="px-2 py-6 text-center text-xs text-muted">No conversations yet.</p>
             )}
-            {list.map((c) => (
-              <div
-                key={c.id}
-                className={cn("group flex items-center gap-1 rounded-md pr-1", c.id === convId ? "bg-accent/10" : "hover:bg-surface2")}
-              >
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 px-2 py-1.5 text-left"
-                  aria-current={c.id === convId}
-                  onClick={() => setParams({ c: c.id })}
-                >
-                  <div className={cn("truncate text-sm", c.id === convId && "font-medium text-accent")}>{truncate(c.title, 60) || "Untitled chat"}</div>
-                  <div className="text-[11px] text-muted">{c.message_count ?? 0} msgs · {fmtRelative(c.updated_at)}</div>
-                </button>
-                <IconButton label="Delete conversation" className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100" onClick={() => setToDelete(c.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </IconButton>
-              </div>
-            ))}
+            {projects.length > 0 && <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Projects</div>}
+            {projects.map((p) => {
+              const chats = list.filter((c) => c.project_id === p.id);
+              const selected = !convId && params.get("p") === p.id;
+              return (
+                <div key={p.id} className="mb-1">
+                  <div className={cn("group flex items-center gap-1 rounded-md pr-1", selected ? "bg-accent/10" : "hover:bg-surface2")}>
+                    <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left" title={p.folder ?? "No project folder"} onClick={() => setParams({ p: p.id })}>
+                      <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                      <span className={cn("truncate text-sm font-medium", selected && "text-accent")}>{p.name}</span>
+                    </button>
+                    <IconButton label={`New chat in ${p.name}`} onClick={() => setParams({ p: p.id })}><Plus className="h-3.5 w-3.5" /></IconButton>
+                    <IconButton label={`Edit ${p.name}`} className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100" onClick={() => setProjDialog({ project: p })}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </div>
+                  <div className="ml-3 border-l border-line pl-1">{chats.map(chatRow)}</div>
+                </div>
+              );
+            })}
+            {projects.length > 0 && loose.length > 0 && <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Chats</div>}
+            {loose.map(chatRow)}
           </div>
         </aside>
 
@@ -300,8 +339,8 @@ export default function ChatPage() {
               {!convId && !showTurn && (
                 <EmptyState
                   icon={MessagesSquare}
-                  title="Start a conversation"
-                  hint="Ask a question, or tell Atom what to automate."
+                  title={activeProject ? `New chat in ${activeProject.name}` : "Start a conversation"}
+                  hint={activeProject ? (activeProject.folder ? `Terminal commands start in ${activeProject.folder}` : "This project has no folder; the global terminal folder is used.") : "Ask a question, or tell Atom what to automate."}
                   action={
                     <div className="flex max-w-md flex-col gap-1.5">
                       {SUGGESTIONS.map((s) => (
@@ -350,9 +389,24 @@ export default function ChatPage() {
             onPrefs={updatePrefs}
             autoFocusKey={convId}
             attachments={attachments}
+            project={activeProject}
           />
         </section>
       </div>
+      <ProjectDialog
+        open={projDialog !== null}
+        project={projDialog?.project ?? null}
+        onClose={() => setProjDialog(null)}
+        onSaved={(p) => { if (!projDialog?.project) setParams({ p: p.id }); }}
+        onDelete={(p) => setProjToDelete(p)}
+      />
+      <ConfirmDialog
+        open={projToDelete !== null}
+        onClose={() => setProjToDelete(null)}
+        onConfirm={() => void delProject()}
+        title="Delete project?"
+        message="The project is removed. Its chats are kept and move to the main chat list."
+      />
       <ConfirmDialog
         open={toDelete !== null}
         onClose={() => setToDelete(null)}

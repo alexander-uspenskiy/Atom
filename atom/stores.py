@@ -480,20 +480,90 @@ class MemoryStore:
 
 
 # =============================================================================== conversations
+class ProjectStore:
+    """A named group of chats with an optional working folder for the assistant's terminal."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    @staticmethod
+    def _folder(folder: str | None) -> str | None:
+        f = (folder or "").strip()
+        if not f:
+            return None
+        p = Path(f).expanduser()
+        if not p.is_dir():
+            raise Invalid(f"folder '{f}' does not exist or is not a directory")
+        return str(p.resolve())
+
+    @staticmethod
+    def _name(name: str | None) -> str:
+        n = (name or "").strip()[:80]
+        if not n:
+            raise Invalid("project name is required")
+        return n
+
+    def list(self) -> list[dict]:
+        return [dict(r) for r in self.db.all(
+            "SELECT id, name, folder, created_at, updated_at, (SELECT COUNT(*) FROM conversations c WHERE c.project_id=projects.id) "
+            "AS chat_count FROM projects ORDER BY name COLLATE NOCASE")]
+
+    def get(self, pid: str) -> dict:
+        r = self.db.one("SELECT id, name, folder, created_at, updated_at FROM projects WHERE id=?", (pid,))
+        if not r:
+            raise NotFound(f"project {pid} not found")
+        return dict(r)
+
+    def exists(self, pid: str) -> bool:
+        return self.db.one("SELECT 1 FROM projects WHERE id=?", (pid,)) is not None
+
+    def create(self, name: str, folder: str | None = None) -> dict:
+        pid, t = new_id(), now()
+        self.db.execute("INSERT INTO projects (id,name,folder,created_at,updated_at) VALUES (?,?,?,?,?)",
+                        (pid, self._name(name), self._folder(folder), t, t))
+        return self.get(pid)
+
+    def update(self, pid: str, name: str | None, folder: str | None) -> dict:
+        self.get(pid)
+        self.db.execute("UPDATE projects SET name=?, folder=?, updated_at=? WHERE id=?",
+                        (self._name(name), self._folder(folder), now(), pid))
+        return self.get(pid)
+
+    def delete(self, pid: str) -> None:
+        self.get(pid)
+        self.db.execute("UPDATE conversations SET project_id=NULL WHERE project_id=?", (pid,))   # chats are kept
+        self.db.execute("DELETE FROM projects WHERE id=?", (pid,))
+
+
 class ConversationStore:
     def __init__(self, db: Database):
         self.db = db
 
     def list(self) -> list[dict]:
-        rows = self.db.all("SELECT c.id, c.title, c.updated_at, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id "
+        rows = self.db.all("SELECT c.id, c.title, c.updated_at, c.project_id, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id=c.id "
                            "AND m.role IN ('user','assistant')) AS n FROM conversations c ORDER BY c.updated_at DESC")
-        return [{"id": r["id"], "title": r["title"], "updated_at": r["updated_at"], "message_count": r["n"]} for r in rows]
+        return [{"id": r["id"], "title": r["title"], "updated_at": r["updated_at"], "message_count": r["n"],
+                 "project_id": r["project_id"]} for r in rows]
 
-    def create(self, title: str | None = None) -> dict:
+    def create(self, title: str | None = None, project_id: str | None = None) -> dict:
+        if project_id and not self.db.one("SELECT 1 FROM projects WHERE id=?", (project_id,)):
+            raise NotFound(f"project {project_id} not found")
         cid, t = new_id(), now()
-        self.db.execute("INSERT INTO conversations (id,title,created_at,updated_at) VALUES (?,?,?,?)",
-                        (cid, title or "New chat", t, t))
-        return {"id": cid, "title": title or "New chat", "updated_at": t, "message_count": 0}
+        self.db.execute("INSERT INTO conversations (id,title,created_at,updated_at,project_id) VALUES (?,?,?,?,?)",
+                        (cid, title or "New chat", t, t, project_id or None))
+        return {"id": cid, "title": title or "New chat", "updated_at": t, "message_count": 0, "project_id": project_id or None}
+
+    def project_of(self, cid: str) -> dict | None:
+        r = self.db.one("SELECT p.id, p.name, p.folder FROM conversations c JOIN projects p ON p.id=c.project_id "
+                        "WHERE c.id=?", (cid,))
+        return dict(r) if r else None
+
+    def move(self, cid: str, project_id: str | None) -> None:
+        if not self.exists(cid):
+            raise NotFound(f"conversation {cid} not found")
+        if project_id and not self.db.one("SELECT 1 FROM projects WHERE id=?", (project_id,)):
+            raise NotFound(f"project {project_id} not found")
+        self.db.execute("UPDATE conversations SET project_id=? WHERE id=?", (project_id or None, cid))
 
     def exists(self, cid: str) -> bool:
         return self.db.one("SELECT 1 FROM conversations WHERE id=?", (cid,)) is not None
@@ -521,7 +591,7 @@ class ConversationStore:
         if not c:
             raise NotFound(f"conversation {cid} not found")
         msgs = [self._msg(r) for r in self.db.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY seq", (cid,))]
-        return {"id": cid, "title": c["title"], "messages": msgs}
+        return {"id": cid, "title": c["title"], "project_id": c["project_id"], "messages": msgs}
 
     def append(self, cid: str, role: str, content: str = "", *, reasoning: str | None = None,
                tool_calls: list | None = None, tool_call_id: str | None = None, action_id: str | None = None,

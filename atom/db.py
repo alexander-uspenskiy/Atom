@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS memories (
   created_at REAL, updated_at REAL, last_used_at REAL, use_count INTEGER DEFAULT 0
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(mid UNINDEXED, title, content, tags);
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, folder TEXT, created_at REAL, updated_at REAL
+);
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY, title TEXT, created_at REAL, updated_at REAL
 );
@@ -116,6 +119,9 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(agents)")}
         if "workdir" not in cols:
             self.conn.execute("ALTER TABLE agents ADD COLUMN workdir TEXT")
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(conversations)")}
+        if "project_id" not in cols:
+            self.conn.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(schedules)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE schedules ADD COLUMN images TEXT")

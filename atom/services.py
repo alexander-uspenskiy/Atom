@@ -16,7 +16,7 @@ from .runs import RunManager
 from .scheduler import SchedulerService
 from .settings_store import SettingsStore
 from .skills import SkillStore
-from .stores import ActionStore, AgentStore, ConversationStore, MemoryStore, RunStore, ScheduleStore
+from .stores import ActionStore, AgentStore, ConversationStore, MemoryStore, ProjectStore, RunStore, ScheduleStore
 from .tools import build_tools
 from .uploads import UploadStore
 from .variables import VariableStore
@@ -38,6 +38,7 @@ class Services:
         self.runs = RunStore(self.db)
         self.memory = MemoryStore(self.db)
         self.variables = VariableStore(self.db)
+        self.projects = ProjectStore(self.db)
         self.conversations = ConversationStore(self.db)
         self.uploads = UploadStore(eff.uploads_dir)
         self.action_store = ActionStore(self.db)

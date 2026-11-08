@@ -1,28 +1,39 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Brain, Send, Square, Wrench } from "lucide-react";
-import { useChatTools } from "../../api/hooks";
+import { Brain, FolderOpen, Send, Sparkles, Square, Wrench } from "lucide-react";
+import { useChatTools, useSkills, useTools } from "../../api/hooks";
+import type { Project } from "../../api/types";
+import { SkillList } from "../SkillList";
 import { ToolList } from "../ToolList";
 import { Dialog } from "../ui/Dialog";
+import { FolderPicker } from "../ui/FolderPicker";
 import { Button } from "../ui/Button";
 import { Segmented } from "../ui/Fields";
 import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi } from "./Attachments";
 import { Switch } from "../ui/Switch";
 
 export type ChatEffort = "low" | "medium" | "xhigh";
-export interface ChatPrefs { thinking: boolean; effort: ChatEffort }
+export interface ChatPrefs { thinking: boolean; effort: ChatEffort; workdir?: string }
 
 export function Composer({
-  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments,
+  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project,
 }: {
   value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; streaming: boolean;
   prefs: ChatPrefs; onPrefs: (p: ChatPrefs) => void; disabled?: boolean; autoFocusKey?: string | null;
-  attachments: AttachmentsApi;
+  attachments: AttachmentsApi; project?: Project | null;
 }) {
   const hasContent = !!value.trim() || attachments.ids.length > 0;
   const canSend = hasContent && !attachments.busy && !disabled;
   const ta = useRef<HTMLTextAreaElement>(null);
-  const tools = useChatTools();
+  const chatTools = useChatTools();
+  const agentTools = useTools();
+  const active = (l?: { enabled?: boolean }[]) => (l ?? []).filter((t) => t.enabled !== false).length;
+  const total = chatTools.data && agentTools.data ? active(chatTools.data) + active(agentTools.data) : null;
   const [toolsOpen, setToolsOpen] = useState(false);
+  const skills = useSkills();
+  const skillCount = skills.data ? active(skills.data) : null;
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const terminalOn = chatTools.data?.some((t) => t.name === "run_command" && t.enabled !== false) ?? false;
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
@@ -75,14 +86,40 @@ export function Composer({
               options={[{ value: "low", label: "low" }, { value: "medium", label: "medium" }, { value: "xhigh", label: "xhigh" }]}
             />
           </span>
+          {terminalOn && project?.folder && (
+            <span className="inline-flex max-w-[16rem] items-center gap-1.5 px-1.5 py-0.5 text-xs text-muted" title={`Project folder: ${project.folder}`}>
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate font-mono">{project.folder.split("/").filter(Boolean).pop() ?? "/"}</span>
+            </span>
+          )}
+          {terminalOn && !project?.folder && (
+            <button
+              type="button"
+              onClick={() => setFolderOpen(true)}
+              className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg"
+              title="Working folder for terminal commands in this chat"
+            >
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate font-mono">{prefs.workdir ? prefs.workdir.split("/").filter(Boolean).pop() ?? "/" : "Default folder"}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setToolsOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg"
-            title="Tools available in this session"
+            title="All tools available: chat assistant + web agents"
           >
             <Wrench className="h-3.5 w-3.5" aria-hidden />
-            Tools ({tools.data?.length ?? "…"})
+            Tools ({total ?? "…"})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSkillsOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg"
+            title="Skills available to web agents"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Skills ({skillCount ?? "…"})
           </button>
           <div className="ml-auto">
             {streaming ? (
@@ -93,8 +130,25 @@ export function Composer({
           </div>
         </div>
       </div>
-      <Dialog open={toolsOpen} onClose={() => setToolsOpen(false)} title={`Tools available in this chat (${tools.data?.length ?? 0})`}>
-        <ToolList tools={tools.data ?? []} />
+      <Dialog open={folderOpen} onClose={() => setFolderOpen(false)} title="Terminal working folder (this chat)">
+        <p className="mb-2 text-xs text-muted">Where the assistant's shell commands start. Empty = the folder from Settings → Terminal.</p>
+        <FolderPicker value={prefs.workdir ?? ""} onChange={(workdir) => onPrefs({ ...prefs, workdir })} />
+      </Dialog>
+      <Dialog open={skillsOpen} onClose={() => setSkillsOpen(false)} title={`Skills (${skillCount ?? 0})`}>
+        <p className="mb-2 text-xs text-muted">Reusable procedures web agents can load on demand. Assign them to agents on the Agents page.</p>
+        <SkillList skills={skills.data ?? []} />
+      </Dialog>
+      <Dialog open={toolsOpen} onClose={() => setToolsOpen(false)} title={`Tools (${total ?? 0})`}>
+        <div className="space-y-4">
+          <section>
+            <h3 className="mb-1.5 text-xs font-semibold">Chat assistant ({active(chatTools.data)})</h3>
+            <ToolList tools={chatTools.data ?? []} />
+          </section>
+          <section>
+            <h3 className="mb-1.5 text-xs font-semibold">Web agents ({active(agentTools.data)})</h3>
+            <ToolList tools={agentTools.data ?? []} />
+          </section>
+        </div>
       </Dialog>
     </div>
   );

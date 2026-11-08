@@ -220,16 +220,20 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def list_tools(request: Request):
         svc = svc_of(request)
         tools = {**build_tools(), **svc.mcp.tools, **svc.connectors.tools}
-        return [{"name": t.name, "description": t.description, "side_effect": t.side_effect}
+        term = svc.settings.effective().terminal_enabled
+        return [{"name": t.name, "description": t.description, "side_effect": t.side_effect,
+                 "enabled": term if t.name == "terminal" else True}
                 for t in tools.values()]
 
     @app.get("/api/chat/tools")
     async def chat_tools(request: Request):
         """Tools the chat assistant can call in the current session."""
-        specs = svc_of(request).assistant.tool_specs()
+        svc = svc_of(request)
+        term = svc.settings.effective().terminal_enabled
         return [{"name": t["function"]["name"], "description": t["function"]["description"],
-                 "side_effect": t["function"]["name"].startswith("propose_") or t["function"]["name"] in ("run_agent", "run_command")}
-                for t in specs]
+                 "side_effect": t["function"]["name"].startswith("propose_") or t["function"]["name"] in ("run_agent", "run_command"),
+                 "enabled": term or t["function"]["name"] != "run_command"}
+                for t in svc.assistant.tool_specs(include_disabled=True)]
 
     def _mcp_payload(svc) -> dict:
         cfgs = svc.mcp.load_config()
@@ -538,7 +542,24 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
 
     @app.post("/api/conversations", status_code=201)
     async def create_conversation(request: Request, body: dict = Body(default={})):
-        return svc_of(request).conversations.create(body.get("title"))
+        return svc_of(request).conversations.create(body.get("title"), body.get("project_id"))
+
+    # ------------------------------------------------------------------ projects
+    @app.get("/api/projects")
+    async def list_projects(request: Request):
+        return svc_of(request).projects.list()
+
+    @app.post("/api/projects", status_code=201)
+    async def create_project(request: Request, body: dict = Body(...)):
+        return svc_of(request).projects.create(body.get("name"), body.get("folder"))
+
+    @app.put("/api/projects/{pid}")
+    async def update_project(request: Request, pid: str, body: dict = Body(...)):
+        return svc_of(request).projects.update(pid, body.get("name"), body.get("folder"))
+
+    @app.delete("/api/projects/{pid}", status_code=204)
+    async def delete_project(request: Request, pid: str):
+        svc_of(request).projects.delete(pid)
 
     @app.get("/api/conversations/{cid}")
     async def get_conversation(request: Request, cid: str):
@@ -547,8 +568,11 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     @app.put("/api/conversations/{cid}")
     async def rename_conversation(request: Request, cid: str, body: dict = Body(...)):
         svc = svc_of(request)
-        svc.conversations.rename(cid, body.get("title") or "Chat")
-        return {"id": cid, "title": body.get("title")}
+        if "project_id" in body:
+            svc.conversations.move(cid, body.get("project_id"))
+        if body.get("title") is not None or "project_id" not in body:
+            svc.conversations.rename(cid, body.get("title") or "Chat")
+        return {"id": cid, "title": body.get("title"), "project_id": body.get("project_id")}
 
     @app.delete("/api/conversations/{cid}", status_code=204)
     async def delete_conversation(request: Request, cid: str):
@@ -568,7 +592,10 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             raise NotFound(f"conversation {cid} not found")
         if body.get("effort") not in (None, "low", "medium", "xhigh"):
             raise Invalid("effort must be low, medium or xhigh")
-        return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images), request)
+        proj = svc.conversations.project_of(cid)
+        workdir = (proj or {}).get("folder") or (body.get("workdir") or "").strip() or None   # a project's folder wins
+        return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images,
+                                                  workdir=workdir), request)
 
     # ------------------------------------------------------------------ stats
     @app.get("/api/stats/summary")

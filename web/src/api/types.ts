@@ -33,7 +33,7 @@ export interface Agent {
   profile?: string | null; workdir?: string | null; is_default?: boolean; created_at?: number; updated_at?: number;
 }
 export type AgentInput = Omit<Agent, "id" | "created_at" | "updated_at" | "is_default">;
-export interface ToolInfo { name: string; description?: string; side_effect?: boolean }
+export interface ToolInfo { name: string; description?: string; side_effect?: boolean; enabled?: boolean }
 export interface RunOverrides { thinking?: Thinking; effort?: Effort; max_steps?: number | null; temperature?: number | null }
 
 export interface RunSummary {
@@ -130,9 +130,10 @@ export interface Message {
   tool_calls?: ToolCallInfo[] | null; tool_call_id?: string | null; action_id?: string | null;
   run_id?: string | null; stats?: MessageStats | null; images?: string[]; created_at?: number;
 }
-export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number }
-export interface Conversation { id: string; title?: string | null; messages: Message[] }
-export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[] }
+export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number; project_id?: string | null }
+export interface Project { id: string; name: string; folder: string | null; chat_count?: number; updated_at?: number }
+export interface Conversation { id: string; title?: string | null; project_id?: string | null; messages: Message[] }
+export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[]; workdir?: string }
 export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string; kind: "image" | "document"; pages?: number; rows?: number; sheets?: number; chars?: number; scanned?: boolean }
 
 export type ChatEvent =

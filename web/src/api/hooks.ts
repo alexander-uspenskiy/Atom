@@ -20,6 +20,7 @@ export const qk = {
   skills: ["skills"] as const,
   actions: (s?: string) => ["actions", s ?? "all"] as const,
   conversations: ["conversations"] as const,
+  projects: ["projects"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   stats: (d: number) => ["stats", d] as const,
 };
@@ -41,6 +42,7 @@ export const useRun = (id: string) => useQuery({ queryKey: qk.run(id), queryFn: 
 export const useMemories = (f: MemoryFilters) => useQuery({ queryKey: qk.memories(f), queryFn: () => api.memories(f) });
 export const useActions = (status?: string) =>
   useQuery({ queryKey: qk.actions(status), queryFn: () => api.actions(status) });
+export const useProjects = () => useQuery({ queryKey: qk.projects, queryFn: api.projects });
 export const useConversations = () => useQuery({ queryKey: qk.conversations, queryFn: api.conversations });
 export const useStats = (days: number) => useQuery({ queryKey: qk.stats(days), queryFn: () => api.stats(days) });
 

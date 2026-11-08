@@ -12,12 +12,12 @@ export default function ToolsPage() {
     <Page title="Tools" subtitle="Everything the chat assistant and the web agents can call.">
       <div className="mx-auto max-w-3xl space-y-6">
         <section aria-labelledby="chat-tools">
-          <h2 id="chat-tools" className="mb-2 text-sm font-semibold">Chat assistant ({chat.data?.length ?? 0})</h2>
+          <h2 id="chat-tools" className="mb-2 text-sm font-semibold">Chat assistant ({(chat.data ?? []).filter((t) => t.enabled !== false).length})</h2>
           {chat.isLoading ? <Loading /> : chat.error ? <ErrorState error={chat.error} onRetry={() => void chat.refetch()} /> :
             chat.data?.length ? <ToolList tools={chat.data} /> : <Card><EmptyState icon={Wrench} title="No tools" /></Card>}
         </section>
         <section aria-labelledby="agent-tools">
-          <h2 id="agent-tools" className="mb-2 text-sm font-semibold">Web agents ({agent.data?.length ?? 0})</h2>
+          <h2 id="agent-tools" className="mb-2 text-sm font-semibold">Web agents ({(agent.data ?? []).filter((t) => t.enabled !== false).length})</h2>
           {agent.isLoading ? <Loading /> : agent.error ? <ErrorState error={agent.error} onRetry={() => void agent.refetch()} /> :
             agent.data?.length ? <ToolList tools={agent.data} /> : <Card><EmptyState icon={Wrench} title="No tools" /></Card>}
         </section>

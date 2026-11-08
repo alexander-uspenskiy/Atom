@@ -152,7 +152,7 @@ class Assistant:
         raise NotFound("that run has no screenshots")
 
     async def _tool(self, name: str, a: dict, conv_id: str, events: asyncio.Queue,
-                    can_send_images: bool = False) -> tuple[str, dict]:
+                    can_send_images: bool = False, workdir: str | None = None) -> tuple[str, dict]:
         """Execute one assistant tool. Returns (result_text, extras) where extras may hold action_id / run_id."""
         svc = self.svc
         eff = svc.settings.effective()
@@ -206,7 +206,7 @@ class Assistant:
         if name == "run_command":
             from .terminal import TerminalError, run_command
             try:
-                text, ok = await run_command(eff, str(a["command"]), a.get("timeout_s"), a.get("cwd"))
+                text, ok = await run_command(eff, str(a["command"]), a.get("timeout_s"), a.get("cwd"), base=workdir or None)
             except TerminalError as e:
                 raise Invalid(str(e)) from e
             return ("" if ok else "Command failed.\n") + "<terminal_output>\n" + text + "\n</terminal_output>", {}
@@ -310,7 +310,7 @@ class Assistant:
 
     async def converse(self, conv_id: str, content: str, thinking: bool | None = None,
                        effort: str | None = None, images: list[str] | None = None,
-                       can_send_images: bool = False) -> AsyncIterator[dict]:
+                       can_send_images: bool = False, workdir: str | None = None) -> AsyncIterator[dict]:
         svc = self.svc
         if not svc.conversations.exists(conv_id):
             raise NotFound(f"conversation {conv_id} not found")
@@ -327,7 +327,7 @@ class Assistant:
             svc.conversations.rename(conv_id, content.strip().replace("\n", " ")[:60] or (svc.uploads.label(images) if images else "Chat"))
 
         events: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images))
+        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir))
         try:
             while True:
                 ev = await events.get()
@@ -339,15 +339,15 @@ class Assistant:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
-    def tool_specs(self, can_send_images: bool = False) -> list[dict]:
+    def tool_specs(self, can_send_images: bool = False, include_disabled: bool = False) -> list[dict]:
         """The tool specs the chat assistant can call in a session right now."""
         tools = [*TOOLS, SEND_IMAGE] if can_send_images else list(TOOLS)
-        if self.svc.settings.effective().terminal_enabled:
+        if include_disabled or self.svc.settings.effective().terminal_enabled:
             tools.append(RUN_COMMAND)
         return tools
 
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,
-                    can_send_images: bool = False) -> None:
+                    can_send_images: bool = False, workdir: str | None = None) -> None:
         svc = self.svc
         tools = self.tool_specs(can_send_images)
         names = {t["function"]["name"] for t in tools}
@@ -399,7 +399,7 @@ class Assistant:
                         text, ok = f"Unknown tool '{c.name}'.", False
                     else:
                         try:
-                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images)
+                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir)
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
                     tmsg = svc.conversations.append(conv_id, "tool", text, tool_call_id=c.id,

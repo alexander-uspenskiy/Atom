@@ -1,5 +1,5 @@
 import type {
-  Agent, AgentInput, ChatBody, ChatEvent, Conversation, ConversationInfo, Memory, MemoryInput, PendingAction,
+  Agent, AgentInput, ChatBody, ChatEvent, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
   UploadInfo, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
@@ -131,7 +131,12 @@ export const api = {
   rejectAction: (id: string) => req<PendingAction>("POST", `/actions/${encodeURIComponent(id)}/reject`, {}),
 
   conversations: () => req<ConversationInfo[]>("GET", "/conversations"),
-  createConversation: (title: string | null = null) => req<ConversationInfo>("POST", "/conversations", { title }),
+  createConversation: (title: string | null = null, project_id: string | null = null) =>
+    req<ConversationInfo>("POST", "/conversations", { title, project_id }),
+  projects: () => req<Project[]>("GET", "/projects"),
+  createProject: (b: { name: string; folder: string }) => req<Project>("POST", "/projects", b),
+  updateProject: (id: string, b: { name: string; folder: string }) => req<Project>("PUT", `/projects/${encodeURIComponent(id)}`, b),
+  deleteProject: (id: string) => req<void>("DELETE", `/projects/${encodeURIComponent(id)}`),
   conversation: (id: string) => req<Conversation>("GET", `/conversations/${encodeURIComponent(id)}`),
   renameConversation: (id: string, title: string) =>
     req<ConversationInfo>("PUT", `/conversations/${encodeURIComponent(id)}`, { title }),
