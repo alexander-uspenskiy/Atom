@@ -249,7 +249,7 @@ class Agent:
                                     {"role": "user", "content": self._user_content(user, cfg)}]
             base_user = user
             recent: list[tuple[str, str, str]] = []
-            consecutive_errors = stuck_hits = no_tool_nudges = 0
+            consecutive_errors = stuck_hits = no_tool_nudges = find_streak = 0
             escalate = False
             action_log: list[str] = []
             look_idx: list[int] = []        # indexes in `messages` of screenshot messages still holding pixels
@@ -376,6 +376,13 @@ class Agent:
                         stuck_hits += 1
                         if stuck_hits >= 2:
                             escalate = True
+                    if tc.name == "find":      # small models sweep many keywords instead of reading the page once
+                        find_streak += 1
+                        if find_streak >= 4:
+                            text += ("\n\nHint: stop probing with find. Call read_text(mode=\"full\") once on this page, "
+                                     "or wait(text=...) for the section to render, then read.")
+                    elif tc.name != "note":
+                        find_streak = 0
                     consecutive_errors = 0 if out.ok else consecutive_errors + 1
                     if consecutive_errors == 2:
                         text += "\n\nHint: the last two actions failed. Take a fresh snapshot or try a different approach."

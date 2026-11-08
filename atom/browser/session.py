@@ -64,6 +64,15 @@ class Policy:
         return None
 
 
+# Resolves once the DOM has had no mutations for `quiet` ms (or after `max` ms). Args: [quiet, max].
+STABLE_JS = """([quiet, max]) => new Promise(resolve => {
+  let timer; const t0 = Date.now();
+  const done = () => { obs.disconnect(); resolve(true); };
+  const arm = () => { clearTimeout(timer); timer = setTimeout(done, Math.max(0, Math.min(quiet, max - (Date.now() - t0)))); };
+  const obs = new MutationObserver(arm);
+  obs.observe(document.documentElement, {childList: true, subtree: true, characterData: true, attributes: true});
+  arm(); setTimeout(done, max);
+})"""
 LOOK_MAX_HEIGHT = 3000      # px; taller pages are cut off (the model downsamples big images anyway)
 
 
@@ -169,6 +178,14 @@ class BrowserSession:
         except Exception:  # noqa: BLE001
             pass
 
+    async def _wait_stable(self, quiet_ms: int = 350, max_ms: int = 2500) -> None:
+        """Wait until the DOM stops mutating. Single-page apps re-render a moment after a click; reading text or
+        taking a snapshot before that returns the PREVIOUS view, which small models then misread as a broken page."""
+        try:
+            await self._need_page().evaluate(STABLE_JS, [quiet_ms, max_ms])
+        except Exception:  # noqa: BLE001
+            pass
+
     def _locator(self, ref: str):
         ref = ref.strip().strip("[]")
         if not re.fullmatch(r"e\d+", ref):
@@ -189,6 +206,7 @@ class BrowserSession:
             self._last_snap = None
             msgs.append("A new tab opened; now viewing it.")
         await self._settle()
+        await self._wait_stable()
         if self._need_page().url != before_url:
             msgs.append(f"Navigated to {self.page.url}")
             self._last_snap = None
@@ -306,13 +324,14 @@ class BrowserSession:
 
     async def read_text(self, offset: int = 0, mode: str = "auto") -> str:
         page = self._need_page()
-        html = await page.content()
-        key = (page.url, len(html))
+        await self._wait_stable(250, 1500)
+        inner = await page.evaluate("document.body ? document.body.innerText : ''")
+        key = (page.url, hash(inner))
         if self._text_cache and self._text_cache[0] == key and self._text_cache[2] == mode:
-            text, method = self._text_cache[1], "cached"
+            text = self._text_cache[1]
         else:
-            inner = await page.evaluate("document.body ? document.body.innerText : ''")
-            text, method = extract_readable(html, inner, mode, page.url)
+            html = "" if mode == "full" else await page.content()
+            text, _ = extract_readable(html, inner, mode, page.url)
             self._text_cache = (key, text, mode)
         chunk, nxt, total = paginate(text, max(0, offset), self.s.max_read_tokens)
         if not chunk:
@@ -324,6 +343,7 @@ class BrowserSession:
     async def page_text_for_extract(self, offset: int = 0) -> tuple[str, int]:
         """Raw chunk for the extraction call. Returns (chunk, next_offset or -1)."""
         page = self._need_page()
+        await self._wait_stable(250, 1500)
         html = await page.content()
         inner = await page.evaluate("document.body ? document.body.innerText : ''")
         text, _ = extract_readable(html, inner, "auto", page.url)
