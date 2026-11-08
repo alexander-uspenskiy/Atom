@@ -339,14 +339,18 @@ class Assistant:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
+    def tool_specs(self, can_send_images: bool = False) -> list[dict]:
+        """The tool specs the chat assistant can call in a session right now."""
+        tools = [*TOOLS, SEND_IMAGE] if can_send_images else list(TOOLS)
+        if self.svc.settings.effective().terminal_enabled:
+            tools.append(RUN_COMMAND)
+        return tools
+
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,
                     can_send_images: bool = False) -> None:
         svc = self.svc
-        tools = [*TOOLS, SEND_IMAGE] if can_send_images else list(TOOLS)
-        names = TOOL_NAMES | ({"send_image"} if can_send_images else set())
-        if svc.settings.effective().terminal_enabled:
-            tools.append(RUN_COMMAND)
-            names = names | {"run_command"}
+        tools = self.tool_specs(can_send_images)
+        names = {t["function"]["name"] for t in tools}
         acc = {"content": "", "reasoning": ""}            # everything streamed in the current model call
         try:
             for _ in range(6):

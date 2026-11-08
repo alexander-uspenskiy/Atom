@@ -70,6 +70,7 @@ export const api = {
   updateAgent: (id: string, a: AgentInput) => req<Agent>("PUT", `/agents/${encodeURIComponent(id)}`, a),
   deleteAgent: (id: string) => req<void>("DELETE", `/agents/${encodeURIComponent(id)}`),
   tools: () => req<ToolInfo[]>("GET", "/tools"),
+  chatTools: () => req<ToolInfo[]>("GET", "/chat/tools"),
   fsDirs: (path: string) => req<{ path: string; parent: string | null; home: string; dirs: string[] }>("GET", `/fs/dirs?path=${encodeURIComponent(path)}`),
   mcp: () => req<McpStatus>("GET", "/mcp"),
   mcpReload: () => req<McpStatus>("POST", "/mcp/reload"),

@@ -345,6 +345,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { values: settingsValues, defaults: settingsDefaults, schema });
     }
     if (p === "/api/tools") return json(res, 200, tools);
+    if (p === "/api/chat/tools") return json(res, 200, tools.slice(0, 5));
     if (p === "/api/agents") {
       if (m === "POST") { const b = await readBody(req); const a = { ...b, id: uid("a"), is_default: false, created_at: now(), updated_at: now() }; agents.push(a); return json(res, 200, a); }
       return json(res, 200, agents);

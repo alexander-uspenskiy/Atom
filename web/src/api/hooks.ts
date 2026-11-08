@@ -9,6 +9,7 @@ export const qk = {
   settings: ["settings"] as const,
   agents: ["agents"] as const,
   tools: ["tools"] as const,
+  chatTools: ["chat-tools"] as const,
   mcp: ["mcp"] as const,
   variables: ["variables"] as const,
   connectors: ["connectors"] as const,
@@ -27,6 +28,7 @@ export const useStatus = () => useQuery({ queryKey: qk.status, queryFn: api.stat
 export const useUploadInfo = (id: string) => useQuery({ queryKey: ["upload", id], queryFn: () => api.uploadInfo(id), staleTime: Infinity, retry: false });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.settings });
 export const useAgents = () => useQuery({ queryKey: qk.agents, queryFn: api.agents });
+export const useChatTools = () => useQuery({ queryKey: qk.chatTools, queryFn: api.chatTools, staleTime: 30000 });
 export const useTools = () => useQuery({ queryKey: qk.tools, queryFn: api.tools, staleTime: 60000 });
 export const useVariables = () => useQuery({ queryKey: qk.variables, queryFn: api.variables });
 export const useConnectors = () => useQuery({ queryKey: qk.connectors, queryFn: api.connectors });

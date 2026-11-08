@@ -9,6 +9,7 @@ import RunsPage from "./pages/RunsPage";
 import AgentsPage from "./pages/AgentsPage";
 import SchedulesPage from "./pages/SchedulesPage";
 import MemoryPage from "./pages/MemoryPage";
+import ToolsPage from "./pages/ToolsPage";
 import SkillsPage from "./pages/SkillsPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="runs/:id" element={<RunPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="skills" element={<SkillsPage />} />
+        <Route path="tools" element={<ToolsPage />} />
         <Route path="stats" element={<Suspense fallback={<Loading />}><StatsPage /></Suspense>} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="approvals" element={<ApprovalsPage />} />

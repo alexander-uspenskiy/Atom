@@ -223,6 +223,14 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect}
                 for t in tools.values()]
 
+    @app.get("/api/chat/tools")
+    async def chat_tools(request: Request):
+        """Tools the chat assistant can call in the current session."""
+        specs = svc_of(request).assistant.tool_specs()
+        return [{"name": t["function"]["name"], "description": t["function"]["description"],
+                 "side_effect": t["function"]["name"].startswith("propose_") or t["function"]["name"] in ("run_agent", "run_command")}
+                for t in specs]
+
     def _mcp_payload(svc) -> dict:
         cfgs = svc.mcp.load_config()
         blank = {"state": "pending", "tools": 0, "tool_names": [], "error": None}

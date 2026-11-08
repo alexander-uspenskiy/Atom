@@ -1,5 +1,8 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
-import { Brain, Send, Square } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Brain, Send, Square, Wrench } from "lucide-react";
+import { useChatTools } from "../../api/hooks";
+import { ToolList } from "../ToolList";
+import { Dialog } from "../ui/Dialog";
 import { Button } from "../ui/Button";
 import { Segmented } from "../ui/Fields";
 import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi } from "./Attachments";
@@ -18,6 +21,8 @@ export function Composer({
   const hasContent = !!value.trim() || attachments.ids.length > 0;
   const canSend = hasContent && !attachments.busy && !disabled;
   const ta = useRef<HTMLTextAreaElement>(null);
+  const tools = useChatTools();
+  const [toolsOpen, setToolsOpen] = useState(false);
   useEffect(() => {
     const el = ta.current;
     if (!el) return;
@@ -70,6 +75,15 @@ export function Composer({
               options={[{ value: "low", label: "low" }, { value: "medium", label: "medium" }, { value: "xhigh", label: "xhigh" }]}
             />
           </span>
+          <button
+            type="button"
+            onClick={() => setToolsOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg"
+            title="Tools available in this session"
+          >
+            <Wrench className="h-3.5 w-3.5" aria-hidden />
+            Tools ({tools.data?.length ?? "…"})
+          </button>
           <div className="ml-auto">
             {streaming ? (
               <Button size="sm" variant="danger" icon={<Square className="h-3.5 w-3.5" />} onClick={onStop}>Stop</Button>
@@ -79,6 +93,9 @@ export function Composer({
           </div>
         </div>
       </div>
+      <Dialog open={toolsOpen} onClose={() => setToolsOpen(false)} title={`Tools available in this chat (${tools.data?.length ?? 0})`}>
+        <ToolList tools={tools.data ?? []} />
+      </Dialog>
     </div>
   );
 }
