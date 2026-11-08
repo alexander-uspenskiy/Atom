@@ -33,7 +33,7 @@ SCHEMA: list[dict[str, Any]] = [
     {"key": "chat_effort", "label": "Chat reasoning effort", "group": "Thinking", "type": "select",
      "options": ["low", "medium", "xhigh"]},
     # --- Agent limits ---
-    {"key": "max_steps", "label": "Max steps per run", "group": "Agent limits", "type": "number", "min": 1, "max": 200, "step": 1},
+    {"key": "max_steps", "label": "Max steps per run", "group": "Agent limits", "type": "number", "min": 1, "max": 400, "step": 1},
     {"key": "max_wall_s", "label": "Max seconds per run", "group": "Agent limits", "type": "number", "min": 30, "max": 7200, "step": 30},
     {"key": "compact_at_tokens", "label": "Compact history at (tokens)", "group": "Agent limits", "type": "number",
      "min": 4000, "max": 30000, "step": 500,

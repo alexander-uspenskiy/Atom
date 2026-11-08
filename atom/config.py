@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     chat_effort: str = "low"
 
     # --- Agent budgets ---
-    max_steps: int = 38              # was 25 (+50%, rounded up)
-    max_wall_s: int = 1350           # was 900 (+50%)
+    max_steps: int = 76              # was 38 (+100%)
+    max_wall_s: int = 2700           # was 1350 (+100%)
     ctx_per_slot: int = 32768
     compact_at_tokens: int = 20000   # compact history once the prompt grows past this
     max_observation_tokens: int = 1500

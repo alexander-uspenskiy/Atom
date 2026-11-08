@@ -87,8 +87,8 @@ class AgentStore:
             out["effort"] = d["effort"]
         if "max_steps" in d:
             ms = d["max_steps"]
-            if ms is not None and not (1 <= int(ms) <= 200):
-                raise Invalid("max_steps must be between 1 and 200")
+            if ms is not None and not (1 <= int(ms) <= 400):
+                raise Invalid("max_steps must be between 1 and 400")
             out["max_steps"] = None if ms is None else int(ms)
         if "temperature" in d:
             t = d["temperature"]
