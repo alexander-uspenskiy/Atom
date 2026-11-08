@@ -9,6 +9,7 @@ export function SkillList({ skills }: { skills: Skill[] }) {
         <li key={s.name} className={cn("px-3 py-2", s.enabled === false && "opacity-50")}>
           <div className="flex items-center gap-2">
             <code className="text-xs font-semibold">{s.name}</code>
+            {s.scope === "project" && <Badge tone="accent">project</Badge>}
             {s.enabled === false && <Badge>disabled</Badge>}
           </div>
           {s.description && <p className="mt-0.5 text-xs text-muted">{s.description}</p>}
@@ -16,7 +17,7 @@ export function SkillList({ skills }: { skills: Skill[] }) {
         </li>
       ))}
       {skills.length === 0 && (
-        <li className="px-3 py-4 text-center text-xs text-muted">No skills yet. Create one on the Skills page.</li>
+        <li className="px-3 py-4 text-center text-xs text-muted">No skills yet. Create one on the Skills page, or drop SKILL.md folders into ~/.atom/skills.</li>
       )}
     </ul>
   );

@@ -120,10 +120,12 @@ export const api = {
   updateMemory: (id: string, m: Partial<MemoryInput>) => req<Memory>("PUT", `/memories/${encodeURIComponent(id)}`, m),
   deleteMemory: (id: string) => req<void>("DELETE", `/memories/${encodeURIComponent(id)}`),
 
-  skills: () => req<Skill[]>("GET", "/skills"),
-  createSkill: (s: Skill) => req<Skill>("POST", "/skills", s),
-  updateSkill: (name: string, s: Skill) => req<Skill>("PUT", `/skills/${encodeURIComponent(name)}`, s),
-  deleteSkill: (name: string) => req<void>("DELETE", `/skills/${encodeURIComponent(name)}`),
+  skills: (projectId?: string | null) => req<Skill[]>("GET", `/skills${qs({ project_id: projectId ?? undefined })}`),
+  createSkill: (s: Skill, projectId?: string | null) => req<Skill>("POST", `/skills${qs({ project_id: projectId ?? undefined })}`, s),
+  updateSkill: (name: string, s: Skill, projectId?: string | null) =>
+    req<Skill>("PUT", `/skills/${encodeURIComponent(name)}${qs({ project_id: projectId ?? undefined })}`, s),
+  deleteSkill: (name: string, projectId?: string | null) =>
+    req<void>("DELETE", `/skills/${encodeURIComponent(name)}${qs({ project_id: projectId ?? undefined })}`),
 
   actions: (status?: string) => req<PendingAction[]>("GET", `/actions${qs({ status })}`),
   approveAction: (id: string, payload?: unknown) =>

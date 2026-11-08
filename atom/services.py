@@ -42,7 +42,7 @@ class Services:
         self.conversations = ConversationStore(self.db)
         self.uploads = UploadStore(eff.uploads_dir)
         self.action_store = ActionStore(self.db)
-        self.skills = SkillStore(eff.skills_dir)
+        self.skills = SkillStore(eff.skills_dir, legacy=eff.data_dir / "skills")
         self.scheduler = SchedulerService(self.schedules, self.agents, self.bus, self.settings.effective)
         self.executor = ActionExecutor(self.action_store, self.agents, self.schedules, self.scheduler, self.skills,
                                        self.memory, self.settings, self.bus)

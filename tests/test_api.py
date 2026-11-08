@@ -517,3 +517,28 @@ def test_projects_group_chats_and_set_folder(client, tmp_path):
     assert client.delete(f"/api/projects/{p['id']}").status_code == 204
     chats = {x["id"]: x["project_id"] for x in client.get("/api/conversations").json()}
     assert chats == {c["id"]: None, other["id"]: None}
+
+
+def test_user_and_project_skills(client, tmp_path):
+    folder = tmp_path / "proj"
+    (folder / ".agents" / "skills" / "deploy").mkdir(parents=True)
+    (folder / ".agents" / "skills" / "deploy" / "SKILL.md").write_text(
+        "---\ndescription: Ship it\nlicense: MIT\n---\nrun make deploy\n")
+    proj = client.post("/api/projects", json={"name": "P", "folder": str(folder)}).json()
+    client.post("/api/skills", json={"name": "greet", "description": "say hi", "body": "hi"})
+    # project skills only show up with the project; user ones are always there
+    assert [s["name"] for s in client.get("/api/skills").json()] == ["greet"]
+    got = {s["name"]: s for s in client.get(f"/api/skills?project_id={proj['id']}").json()}
+    assert got["deploy"]["scope"] == "project" and got["greet"]["scope"] == "user"
+    # create at project level -> <folder>/.atom/skills
+    r = client.post(f"/api/skills?project_id={proj['id']}", json={"name": "lint", "description": "d", "body": "b", "scope": "project"})
+    assert r.status_code == 201 and (folder / ".atom" / "skills" / "lint" / "SKILL.md").is_file()
+    assert client.post("/api/skills", json={"name": "x", "description": "d", "body": "b", "scope": "project"}).status_code == 422
+    # editing an external skill keeps its extra frontmatter
+    client.put(f"/api/skills/deploy?project_id={proj['id']}", json={"body": "run make ship"})
+    assert "license: MIT" in (folder / ".agents" / "skills" / "deploy" / "SKILL.md").read_text()
+    # a project skill shadows a user skill of the same name
+    client.post(f"/api/skills?project_id={proj['id']}", json={"name": "greet", "description": "p", "body": "project hi", "scope": "project"})
+    assert client.get(f"/api/skills/greet?project_id={proj['id']}").json()["body"] == "project hi"
+    assert client.get("/api/skills/greet").json()["body"] == "hi"
+    assert client.delete(f"/api/skills/lint?project_id={proj['id']}").status_code == 204

@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     server_host: str = "127.0.0.1"
     server_port: int = 8787
     data_dir: Path = ROOT / "data"
+    skills_dir: Path = Path.home() / ".atom" / "skills"     # user-level skills; projects add <folder>/.atom/skills
 
     @property
     def db_path(self) -> Path:
@@ -84,10 +85,6 @@ class Settings(BaseSettings):
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"
-
-    @property
-    def skills_dir(self) -> Path:
-        return self.data_dir / "skills"
 
 
 def get_settings() -> Settings:

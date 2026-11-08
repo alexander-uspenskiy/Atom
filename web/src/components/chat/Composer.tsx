@@ -29,7 +29,7 @@ export function Composer({
   const active = (l?: { enabled?: boolean }[]) => (l ?? []).filter((t) => t.enabled !== false).length;
   const total = chatTools.data && agentTools.data ? active(chatTools.data) + active(agentTools.data) : null;
   const [toolsOpen, setToolsOpen] = useState(false);
-  const skills = useSkills();
+  const skills = useSkills(project?.id);
   const skillCount = skills.data ? active(skills.data) : null;
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
@@ -116,7 +116,7 @@ export function Composer({
             type="button"
             onClick={() => setSkillsOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg"
-            title="Skills available to web agents"
+            title="Skills available here: yours + this project's"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Skills ({skillCount ?? "…"})
@@ -135,7 +135,7 @@ export function Composer({
         <FolderPicker value={prefs.workdir ?? ""} onChange={(workdir) => onPrefs({ ...prefs, workdir })} />
       </Dialog>
       <Dialog open={skillsOpen} onClose={() => setSkillsOpen(false)} title={`Skills (${skillCount ?? 0})`}>
-        <p className="mb-2 text-xs text-muted">Reusable procedures web agents can load on demand. Assign them to agents on the Agents page.</p>
+        <p className="mb-2 text-xs text-muted">Reusable procedures the assistant and web agents can load on demand. User skills live in ~/.atom/skills; project skills in the project folder's .atom/skills or .agents/skills.</p>
         <SkillList skills={skills.data ?? []} />
       </Dialog>
       <Dialog open={toolsOpen} onClose={() => setToolsOpen(false)} title={`Tools (${total ?? 0})`}>

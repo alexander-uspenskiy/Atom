@@ -34,7 +34,9 @@ export const useTools = () => useQuery({ queryKey: qk.tools, queryFn: api.tools,
 export const useVariables = () => useQuery({ queryKey: qk.variables, queryFn: api.variables });
 export const useConnectors = () => useQuery({ queryKey: qk.connectors, queryFn: api.connectors });
 export const useMcp = () => useQuery({ queryKey: qk.mcp, queryFn: api.mcp });
-export const useSkills = () => useQuery({ queryKey: qk.skills, queryFn: api.skills });
+/** User-level skills, plus the project's own (<folder>/.atom/skills) when a project is given. */
+export const useSkills = (projectId?: string | null) =>
+  useQuery({ queryKey: [...qk.skills, projectId ?? null], queryFn: () => api.skills(projectId) });
 export const useSchedules = () => useQuery({ queryKey: qk.schedules, queryFn: api.schedules });
 export const useRuns = (f: RunFilters = {}, refetchMs?: number | false) =>
   useQuery({ queryKey: qk.runs(f), queryFn: () => api.runs(f), refetchInterval: refetchMs || false });

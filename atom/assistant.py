@@ -64,7 +64,8 @@ TOOLS = [
     _spec("list_runs", "List recent runs (newest first).",
           {"limit": {"type": "integer"}, "status": {"type": "string", "enum": ["queued", "running", "done", "failed", "budget", "stopped"]}}),
     _spec("get_run", "Details of one run including its result and timing. If the run is still queued/running this waits (up to ~2 min) for it to finish, so call it once; do not poll.", {"run_id": S}, ["run_id"]),
-    _spec("list_skills", "List the saved skills.", {}),
+    _spec("list_skills", "List the saved skills (user-level and those of the chat's project folder).", {}),
+    _spec("use_skill", "Load the full instructions of a skill by name and follow them.", {"name": S}, ["name"]),
     _spec("search_memory", "Search saved memories.", {"query": S}, ["query"]),
     _spec("run_agent", "Start a web agent run now.",
           {"agent": {"type": "string", "description": "Agent name or id (optional)"}, "task": S, "start_url": S,
@@ -195,8 +196,14 @@ class Assistant:
                                "and to ask again later or watch the Runs page.")
             return json.dumps(out), {}
         if name == "list_skills":
-            return json.dumps([{"name": s["name"], "description": s["description"], "enabled": s["enabled"]}
-                               for s in svc.skills.list()]), {}
+            return json.dumps([{"name": s["name"], "description": s["description"], "enabled": s["enabled"],
+                                "scope": s["scope"]}
+                               for s in svc.skills.list(workdir)]), {}
+        if name == "use_skill":
+            sk = svc.skills.get(str(a["name"]).strip(), workdir)
+            if not sk["enabled"]:
+                raise Invalid(f"skill '{sk['name']}' is disabled")
+            return f"Skill '{sk['name']}':\n{sk['body']}", {}
         if name == "search_memory":
             return json.dumps([{"id": m["id"], "title": m["title"], "content": m["content"], "scope": m["scope"]}
                                for m in svc.memory.list(q=str(a["query"]), status="active", limit=8)]), {}
@@ -273,7 +280,7 @@ class Assistant:
                            "result": action.get("result")}), {"action_id": action["id"]}
 
     # ------------------------------------------------------------------ conversation
-    def _history(self, conv_id: str, can_send_images: bool = False) -> list[dict]:
+    def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None) -> list[dict]:
         msgs = self.svc.conversations.get(conv_id)["messages"][-40:]
         while msgs and msgs[0]["role"] == "tool":
             msgs = msgs[1:]
@@ -281,6 +288,11 @@ class Assistant:
         if can_send_images:
             sys += ("\n\nThis chat is on Telegram, which can show images: when the user asks to see a page, a run's "
                     "screenshot or an image they sent, use send_image instead of describing it.")
+        cat = [k for k in self.svc.skills.list(workdir) if k["enabled"]]
+        if cat:
+            sys += "\n\nSkills you can load with use_skill(name) when relevant:\n" + "\n".join(
+                f"- {k['name']}: {k['description']}" + (f" (use when: {k['when_to_use']})" if k["when_to_use"] else "")
+                for k in cat)
         pinned = self.svc.memory.list(pinned=True, status="active", scope="global", limit=10)
         if pinned:
             sys += "\n\nPinned user memories:\n" + "\n".join(f"- {m['content']}" for m in pinned)
@@ -354,7 +366,7 @@ class Assistant:
         acc = {"content": "", "reasoning": ""}            # everything streamed in the current model call
         try:
             for _ in range(6):
-                messages = self._history(conv_id, can_send_images)
+                messages = self._history(conv_id, can_send_images, workdir)
                 buf = {"content": "", "reasoning": ""}
                 acc = {"content": "", "reasoning": ""}
                 last = time.monotonic()

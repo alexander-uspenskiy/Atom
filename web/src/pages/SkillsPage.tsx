@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Plus, Save, Trash2 } from "lucide-react";
 import { api } from "../api/client";
-import { invalidate, useSkills } from "../api/hooks";
+import { invalidate, useProjects, useSkills } from "../api/hooks";
 import type { Skill } from "../api/types";
 import { Page } from "../components/Page";
 import { Badge } from "../components/ui/Badge";
@@ -24,7 +24,10 @@ const fromSkill = (s: Skill): Draft => ({ name: s.name, description: s.descripti
 export default function SkillsPage() {
   const qc = useQueryClient();
   const toast = useToast();
-  const q = useSkills();
+  const [projectId, setProjectId] = useState<string>("");     // "" = user-level skills only
+  const [newScope, setNewScope] = useState<"user" | "project">("user");
+  const projects = (useProjects().data ?? []).filter((p) => !!p.folder);
+  const q = useSkills(projectId || null);
   const [sel, setSel] = useState<string | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(blank);
   const [saved, setSaved] = useState<Draft>(blank);
@@ -56,7 +59,7 @@ export default function SkillsPage() {
   const save = useMutation({
     mutationFn: () => {
       const body: Skill = { ...draft };
-      return isNew ? api.createSkill(body) : api.updateSkill(draft.name, body);
+      return isNew ? api.createSkill({ ...body, scope: projectId ? newScope : "user" }, projectId || null) : api.updateSkill(draft.name, body, projectId || null);
     },
     onSuccess: (s) => {
       invalidate(qc, "skills");
@@ -69,7 +72,7 @@ export default function SkillsPage() {
     onError: (e) => toast.error(errMsg(e)),
   });
   const remove = useMutation({
-    mutationFn: () => api.deleteSkill(draft.name),
+    mutationFn: () => api.deleteSkill(draft.name, projectId || null),
     onSuccess: () => {
       invalidate(qc, "skills");
       toast.success("Skill deleted");
@@ -79,7 +82,7 @@ export default function SkillsPage() {
     onError: (e) => toast.error(errMsg(e)),
   });
   const toggle = useMutation({
-    mutationFn: (v: { s: Skill; enabled: boolean }) => api.updateSkill(v.s.name, { ...v.s, enabled: v.enabled }),
+    mutationFn: (v: { s: Skill; enabled: boolean }) => api.updateSkill(v.s.name, { ...v.s, enabled: v.enabled }, projectId || null),
     onSuccess: () => invalidate(qc, "skills"),
     onError: (e) => toast.error(errMsg(e)),
   });
@@ -87,7 +90,7 @@ export default function SkillsPage() {
   const canSave = !!draft.name && !nameErr && !duplicate && !!draft.body.trim() && (isNew || dirty);
 
   return (
-    <Page title="Skills" subtitle="Reusable procedures stored as SKILL.md files" actions={<Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setSel("new")}>New skill</Button>} fill>
+    <Page title="Skills" subtitle="Reusable procedures stored as SKILL.md files: yours in ~/.atom/skills, a project's in its .atom/skills or .agents/skills" actions={<><select className="input w-48" aria-label="Project" value={projectId} onChange={(e) => { setProjectId(e.target.value); setSel(null); setNewScope("user"); }}><option value="">User skills only</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setSel("new")}>New skill</Button></>} fill>
       <div className="flex h-full">
         <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-surface p-1.5" aria-label="Skills">
           {q.isLoading && <Loading />}
@@ -98,7 +101,7 @@ export default function SkillsPage() {
             <div key={s.name} className={cn("flex items-center gap-1.5 rounded-md pr-1.5", s.name === sel ? "bg-accent/10" : "hover:bg-surface2")}>
               <button type="button" className="min-w-0 flex-1 px-2 py-1.5 text-left" aria-current={s.name === sel} onClick={() => setSel(s.name)}>
                 <div className={cn("truncate font-mono text-xs font-semibold", s.name === sel && "text-accent", s.enabled === false && "opacity-60")}>{s.name}</div>
-                <div className="truncate text-xs text-muted">{s.description || "—"}</div>
+                <div className="truncate text-xs text-muted">{s.scope === "project" ? "project · " : ""}{s.description || "—"}</div>
               </button>
               <Switch checked={s.enabled !== false} label={`Enable ${s.name}`} onChange={(enabled) => toggle.mutate({ s, enabled })} />
             </div>
@@ -116,6 +119,12 @@ export default function SkillsPage() {
                 </Field>
                 <div className="flex items-end gap-3 pb-1">
                   <label className="flex items-center gap-2 text-sm"><Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label="Enabled" /> Enabled</label>
+                  {isNew && projectId && (
+                    <select className="input w-40" aria-label="Save to" value={newScope} onChange={(e) => setNewScope(e.target.value as "user" | "project")}>
+                      <option value="user">User skill</option><option value="project">Project skill</option>
+                    </select>
+                  )}
+                  {current?.scope === "project" && <Badge tone="accent">project</Badge>}
                   {current?.created_by === "assistant" && <Badge tone="accent">created by assistant</Badge>}
                 </div>
                 <Field label="Description" htmlFor="sk-desc"><input id="sk-desc" className="input" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>

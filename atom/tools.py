@@ -233,7 +233,7 @@ async def t_use_skill(ctx: ToolContext, a: dict) -> ToolOutput:
     if name not in ctx.skill_names or ctx.skills is None:
         raise ActionError(f"Unknown skill '{name}'. Available: {', '.join(ctx.skill_names) or 'none'}")
     try:
-        s = ctx.skills.get(name)
+        s = ctx.skills.get(name, ctx.workdir)
     except Exception as e:  # noqa: BLE001
         raise ActionError(f"Could not load skill '{name}': {e}") from e
     return ToolOutput(f"Skill '{name}':\n{s['body']}")

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
@@ -146,7 +146,7 @@ class Agent:
         if cfg.agent.get("instructions"):
             sp += f"\n\nAdditional instructions for this agent:\n{cfg.agent['instructions'].strip()}"
         if cfg.skill_names and self.skills is not None:
-            cat = self.skills.catalog(cfg.skill_names)
+            cat = self.skills.catalog(cfg.skill_names, cfg.workdir)
             if cat:
                 sp += "\n\nSkills you can load with use_skill(name) when relevant:\n" + "\n".join(
                     f"- {s['name']}: {s['description']}" + (f" (use when: {s['when_to_use']})" if s["when_to_use"] else "")
@@ -163,6 +163,10 @@ class Agent:
     # ------------------------------------------------------------------
     async def run(self, run_id: str, task: str, cfg: RunConfig) -> RunResult:
         s = self.s
+        if self.skills is not None and cfg.workdir:      # skills kept in the agent's working folder are always on
+            extra = [n for n in self.skills.project_names(cfg.workdir) if n not in cfg.skill_names]
+            if extra:
+                cfg = replace(cfg, skill_names=[*cfg.skill_names, *extra])
         run_dir = s.runs_dir / run_id
         policy = Policy(allowed_domains=cfg.allowed_domains, allow_private=cfg.allow_private)
         server_vision = False

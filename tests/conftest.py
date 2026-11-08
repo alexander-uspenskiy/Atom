@@ -106,7 +106,7 @@ def fake() -> FakeLLM:
 
 @pytest.fixture
 def svc(tmp_path, fake):
-    base = Settings(data_dir=tmp_path, headless=True, max_wall_s=120, llm_base_url="http://fake/v1")
+    base = Settings(data_dir=tmp_path, skills_dir=tmp_path / "user-skills", headless=True, max_wall_s=120, llm_base_url="http://fake/v1")
     return Services(base, llm=fake, db_path=str(tmp_path / "atom.db"))
 
 

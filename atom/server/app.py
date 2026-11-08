@@ -470,25 +470,34 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         svc_of(request).memory.delete(mid)
 
     # ------------------------------------------------------------------ skills
+    def skill_folder(svc, project_id: str | None) -> str | None:
+        """Working folder of a project (where project-level skills live), or None for user-level only."""
+        return svc.projects.get(project_id)["folder"] if project_id else None
+
     @app.get("/api/skills")
-    async def list_skills(request: Request):
-        return svc_of(request).skills.list()
+    async def list_skills(request: Request, project_id: str | None = None):
+        svc = svc_of(request)
+        return svc.skills.list(skill_folder(svc, project_id))
 
     @app.post("/api/skills", status_code=201)
-    async def create_skill(request: Request, body: dict = Body(...)):
-        return svc_of(request).skills.create({**body, "created_by": "user"})
+    async def create_skill(request: Request, body: dict = Body(...), project_id: str | None = None):
+        svc = svc_of(request)
+        return svc.skills.create({**body, "created_by": "user"}, skill_folder(svc, project_id))
 
     @app.get("/api/skills/{name}")
-    async def get_skill(request: Request, name: str):
-        return svc_of(request).skills.get(name)
+    async def get_skill(request: Request, name: str, project_id: str | None = None):
+        svc = svc_of(request)
+        return svc.skills.get(name, skill_folder(svc, project_id))
 
     @app.put("/api/skills/{name}")
-    async def update_skill(request: Request, name: str, body: dict = Body(...)):
-        return svc_of(request).skills.update(name, body)
+    async def update_skill(request: Request, name: str, body: dict = Body(...), project_id: str | None = None):
+        svc = svc_of(request)
+        return svc.skills.update(name, body, skill_folder(svc, project_id))
 
     @app.delete("/api/skills/{name}", status_code=204)
-    async def delete_skill(request: Request, name: str):
-        svc_of(request).skills.delete(name)
+    async def delete_skill(request: Request, name: str, project_id: str | None = None):
+        svc = svc_of(request)
+        svc.skills.delete(name, skill_folder(svc, project_id))
 
     # ------------------------------------------------------------------ approvals
     @app.get("/api/actions")

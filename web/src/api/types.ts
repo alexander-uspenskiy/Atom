@@ -111,6 +111,7 @@ export type MemoryInput = Pick<Memory, "title" | "content" | "tags" | "scope" | 
 export interface Skill {
   name: string; description?: string; when_to_use?: string; body?: string; enabled?: boolean;
   created_by?: string; updated_at?: number;
+  scope?: "user" | "project"; path?: string;
 }
 
 export type ActionKind =

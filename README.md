@@ -69,7 +69,8 @@ atom/            backend: agent loop, browser layer, tools, scheduler, stores, a
 web/             dashboard frontend
 evals/           eval tasks, local fixture site, results
 ops/             start scripts
-data/            SQLite db, run traces + screenshots, skills (SKILL.md files)   (gitignored)
+data/            SQLite db, run traces + screenshots   (gitignored)
+~/.atom/skills/  user-level skills (SKILL.md folders); a project folder adds <folder>/.atom/skills or <folder>/.agents/skills
 ```
 
 ## Notes
