@@ -159,6 +159,7 @@ export interface StatsSummary {
 
 export type GlobalEvent =
   | { type: "run_queued" | "run_started" | "run_finished"; run: RunSummary }
+  | { type: "chat_message"; conversation_id: string; run_id?: string }
   | { type: "schedule_fired"; schedule_id: string; run_id: string }
   | { type: "action_pending" | "action_decided"; action: PendingAction }
   | { type: "status"; status: Status };

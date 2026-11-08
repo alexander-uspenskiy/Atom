@@ -57,7 +57,7 @@ class RunConfig:
     start_url: str | None = None
     allowed_domains: list[str] | None = None
     allow_private: bool = False
-    max_steps: int = 25
+    max_steps: int = 38
     thinking: str = "auto"          # off | auto | on
     effort: str = "low"             # low | medium | xhigh
     temperature: float | None = None

@@ -11,6 +11,7 @@ from .db import Database
 from .events import EventBus
 from .llm import LLM
 from .mcp import McpManager
+from .notify import RunNotifier
 from .runs import RunManager
 from .scheduler import SchedulerService
 from .settings_store import SettingsStore
@@ -49,6 +50,7 @@ class Services:
                                   uploads=self.uploads)
         self.run_manager = RunManager(self.settings, self.runs, self.schedules, self.agent_runner, self.bus)
         self.scheduler.runs = self.run_manager
+        self.notifier = RunNotifier(self)
         self.scheduler.uploads = self.uploads
         self.settings.on_change(self._settings_changed)
         self.assistant = None            # set in server startup (needs the assistant module)
@@ -74,10 +76,12 @@ class Services:
         await self.refresh_mcp()
         self.connectors.attach(self)            # start listeners (e.g. the Telegram bot)
         await self.run_manager.start()
+        self.notifier.start()
         if scheduler:
             self.scheduler.start()
 
     async def shutdown(self) -> None:
+        await self.notifier.stop()
         await self.connectors.stop_background()
         self.scheduler.shutdown()
         await self.mcp.shutdown()

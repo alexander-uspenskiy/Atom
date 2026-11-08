@@ -21,7 +21,7 @@ SYSTEM = """You are the Atom assistant inside the Atom dashboard. Atom runs web 
 
 What you can do with tools:
 - Inspect: list_agents, list_schedules, list_runs, get_run, list_skills, search_memory, get_current_time.
-- Start a web agent run right now: run_agent(agent, task). If the user attached images that the agent needs to see (a screenshot, a photo, a document), pass attach_images=true and describe in the task what to do with them. Tell the user the run started; they can watch it live from the link. If they asked for the outcome (e.g. a summary), call get_run once afterwards: it waits for the run to finish and returns the result, which you then report.
+- Start a web agent run right now: run_agent(agent, task). If the user attached images that the agent needs to see (a screenshot, a photo, a document), pass attach_images=true and describe in the task what to do with them. Tell the user the run started; they can watch it live from the link. If they asked for the outcome (e.g. a summary), call get_run once afterwards: it waits for the run to finish and returns the result, which you then report. If that call still shows queued/running, the run is just slow: do NOT call get_run again in the same turn. Say it is still running (with steps so far), that it keeps going in the background, and that the user can ask you again later or watch the Runs page. You cannot check in the background or message the user later, so never promise to "keep checking" or to "send the summary when it finishes".
 - Propose changes: propose_schedule, propose_schedule_update, propose_schedule_delete, propose_agent, propose_skill, propose_memory. These do NOT take effect immediately: the user sees an approval card and approves or rejects it. After proposing, say what you proposed and ask them to review the card. Never claim something was created unless the tool result says it was approved/created.
 
 Guidelines:
@@ -180,9 +180,14 @@ class Assistant:
             while r["status"] in ("queued", "running") and time.monotonic() < deadline:
                 await asyncio.sleep(2)
                 r = svc.runs.get(str(a["run_id"]))
-            return json.dumps({k: r[k] for k in ("id", "task", "agent_name", "status", "success", "result", "error",
-                                                 "steps", "prompt_tokens", "cached_tokens", "completion_tokens",
-                                                 "llm_seconds", "tool_seconds", "wall_seconds")}), {}
+            out = {k: r[k] for k in ("id", "task", "agent_name", "status", "success", "result", "error",
+                                     "steps", "prompt_tokens", "cached_tokens", "completion_tokens",
+                                     "llm_seconds", "tool_seconds", "wall_seconds")}
+            if r["status"] in ("queued", "running"):
+                out["note"] = ("Snapshot only: the run is still going in the background. Do not call get_run again "
+                               "this turn and do not promise to keep checking; tell the user it is still running "
+                               "and to ask again later or watch the Runs page.")
+            return json.dumps(out), {}
         if name == "list_skills":
             return json.dumps([{"name": s["name"], "description": s["description"], "enabled": s["enabled"]}
                                for s in svc.skills.list()]), {}

@@ -63,6 +63,10 @@ export function useGlobalEvents(): void {
           if (ev.run?.id) void qc.invalidateQueries({ queryKey: qk.run(ev.run.id) });
           invalidate(qc, "stats", "schedules");
           break;
+        case "chat_message":
+          invalidate(qc, "conversations");
+          if (ev.conversation_id) void qc.invalidateQueries({ queryKey: qk.conversation(ev.conversation_id) });
+          break;
         case "schedule_fired":
           invalidate(qc, "schedules", "runs", "status");
           break;

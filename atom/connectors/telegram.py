@@ -177,7 +177,16 @@ class Bridge:
         self.denied_at: dict[int, float] = {}
 
     # ------------------------------------------------------------------ polling
+    async def _notify(self, title: str, text: str) -> None:
+        """Sink for finished chat-started runs: forward to the matching Telegram user."""
+        for uid in self.allowed:
+            if title == self._title(uid):
+                await self.api.send(uid, text)
+
     async def run(self) -> None:
+        notifier = getattr(self.svc, "notifier", None)
+        if notifier:
+            notifier.add_sink(f"telegram:{self.name}", self._notify)
         try:
             await self.api.call("deleteWebhook")                    # getUpdates and webhooks are mutually exclusive
             me = await self.api.call("getMe")
@@ -203,6 +212,8 @@ class Bridge:
                     self.tasks.add(t)
                     t.add_done_callback(self.tasks.discard)
         finally:
+            if notifier:
+                notifier.remove_sink(f"telegram:{self.name}", self._notify)
             for t in list(self.tasks):
                 t.cancel()
             await asyncio.gather(*self.tasks, return_exceptions=True)
