@@ -76,6 +76,11 @@ STABLE_JS = """([quiet, max]) => new Promise(resolve => {
 LOOK_MAX_HEIGHT = 3000      # px; taller pages are cut off (the model downsamples big images anyway)
 
 
+# Headless Chromium reports "HeadlessChrome", which some sites (e.g. WhatsApp Web) reject as an unsupported browser.
+CHROME_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+             "Chrome/156.0.0.0 Safari/537.36")
+
+
 class BrowserSession:
     def __init__(self, settings: Settings, policy: Policy | None = None, run_dir: Path | None = None,
                  profile: Path | None = None, load_images: bool = False):
@@ -101,10 +106,11 @@ class BrowserSession:
         if self.profile:
             self.profile.mkdir(parents=True, exist_ok=True)
             self.ctx = await self._pw.chromium.launch_persistent_context(
-                str(self.profile), headless=self.s.headless, viewport=viewport, accept_downloads=False)
+                str(self.profile), headless=self.s.headless, viewport=viewport, accept_downloads=False,
+                user_agent=CHROME_UA)
         else:
             self._browser = await self._pw.chromium.launch(headless=self.s.headless)
-            self.ctx = await self._browser.new_context(viewport=viewport, accept_downloads=False)
+            self.ctx = await self._browser.new_context(viewport=viewport, accept_downloads=False, user_agent=CHROME_UA)
         self.ctx.set_default_timeout(self.s.action_timeout_ms)
         self.ctx.set_default_navigation_timeout(self.s.nav_timeout_ms)
         await self.ctx.route("**/*", self._route)
