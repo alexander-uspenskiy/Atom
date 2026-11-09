@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from typing import Any, AsyncIterator
@@ -109,7 +110,18 @@ RUN_COMMAND = _spec("run_command", "Run a shell command on the user's computer (
                     "disk or system changes) unless the user explicitly asked for that exact thing.",
                     {"command": S, "cwd": S, "timeout_s": {"type": "integer"}}, ["command"])
 MODES = ("auto", "manual", "plan")
-ACT_TOOLS = {"run_command", "run_agent"}                     # side effects outside the dashboard config
+GENERATE_IMAGE = _spec(
+    "generate_image", "Create an image from a text description with a local model (10-60 s). The result is shown to "
+    "you so you can check it against the request; refine the prompt and call again if it is wrong. Describe subject, "
+    "setting, style and lighting concretely in English.",
+    {"prompt": S, "size": {"type": "string", "enum": ["1024x1024", "768x768", "1024x768", "768x1024", "1280x720",
+                                                       "720x1280", "512x512"]}, "seed": {"type": "integer"}},
+    ["prompt"])
+IMAGE_MARK = "generated_image:"
+IMAGE_CAN_CREATE = ("You can create images with generate_image: write a concrete English prompt, look at the result, "
+                    "and if it misses something important call it again once or twice with a refined prompt. "
+                    "Tell the user the file path of the final image.")
+ACT_TOOLS = {"run_command", "run_agent", "generate_image"}                   # side effects outside the dashboard config
 APPROVAL_TIMEOUT_S = 600
 MODE_PROMPTS = {
     "manual": ("Mode: MANUAL. The user approves each shell command and each agent run before it executes; a denied "
@@ -299,6 +311,23 @@ class Assistant:
             path = self._image_path(a)
             await events.put({"type": "image", "path": str(path), "caption": str(a.get("caption") or "")[:1000]})
             return json.dumps({"sent": True, "image": path.name}), {}
+        if name == "generate_image":
+            from . import imagegen
+            cap = eff.imagegen_max_per_run
+            if self._images_this_turn(conv_id) > cap:     # the current call is already in the history
+                raise Invalid(f"image limit reached ({cap} per message); use the images you have")
+            try:
+                img = await imagegen.generate(eff, str(a["prompt"]), str(a.get("size") or "1024x1024"),
+                                              a.get("seed"))
+            except imagegen.ImageGenError as e:
+                raise Invalid(f"image generation failed: {e}") from e
+            up = await asyncio.to_thread(svc.uploads.save, img.preview_path.read_bytes(), img.path.name)
+            note = imagegen.save_to_project(img, workdir, str(a["prompt"]))
+            if can_send_images:
+                await events.put({"type": "image", "path": str(img.path), "caption": str(a["prompt"])[:1000]})
+            return (f"Generated {img.width}x{img.height} image (seed {img.seed}, {img.seconds:.0f}s). "
+                    f"Full-size file: {img.path}{note}\n[{IMAGE_MARK}{up['id']}] The image is shown to you in the next message: "
+                    "check it against the request."), {}
         if name == "run_agent":
             agent = svc.agents.find(a["agent"]) if a.get("agent") else svc.agents.default()
             if not agent:
@@ -356,6 +385,15 @@ class Assistant:
                            "result": action.get("result")}), {"action_id": action["id"]}
 
     # ------------------------------------------------------------------ conversation
+    def _images_this_turn(self, conv_id: str) -> int:
+        """generate_image calls made since the user's latest message."""
+        n = 0
+        for m in reversed(self.svc.conversations.get(conv_id)["messages"]):
+            if m["role"] == "user":
+                break
+            n += sum(1 for c in (m.get("tool_calls") or []) if c["name"] == "generate_image")
+        return n
+
     def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None,
                  mode: str = "auto") -> list[dict]:
         conv = self.svc.conversations.get(conv_id)
@@ -389,11 +427,28 @@ class Assistant:
         pinned = self.svc.memory.list(pinned=True, status="active", scope="global", limit=10)
         if pinned:
             sys += "\n\nPinned user memories:\n" + "\n".join(f"- {m['content']}" for m in pinned)
+        if self.svc.settings.effective().imagegen_enabled:
+            sys = sys.replace("You cannot create or edit images.", IMAGE_CAN_CREATE)
         out: list[dict] = [{"role": "system", "content": sys}]
         # Images cost thousands of prompt tokens each: only the newest few user messages keep their pixels.
         with_img = [m["id"] for m in msgs if m["role"] == "user" and m.get("images")]
         keep_img = set(with_img[-MAX_HISTORY_IMAGE_MESSAGES:])
+        # Tool results are text-only, so a generated image rides in a user message after the tool results;
+        # only the newest generated image keeps its pixels.
+        gen = [(m["id"], g[0]) for m in msgs if m["role"] == "tool"
+               if (g := re.findall(rf"\[{IMAGE_MARK}([0-9a-f]{{16}})\]", m["content"]))]
+        keep_gen = gen[-1][0] if gen else None
+        shown: list[str] = []
+
+        def flush_generated() -> None:
+            if shown:
+                out.append({"role": "user", "content": self.svc.uploads.content(
+                    "[the image you just generated]", list(shown))})
+                shown.clear()
+
         for m in msgs:
+            if m["role"] != "tool":
+                flush_generated()
             if m["role"] == "assistant":
                 e: dict[str, Any] = {"role": "assistant", "content": m["content"]}
                 if m["tool_calls"]:
@@ -403,6 +458,8 @@ class Assistant:
                 out.append(e)
             elif m["role"] == "tool":
                 out.append({"role": "tool", "tool_call_id": m["tool_call_id"], "content": m["content"]})
+                if m["id"] == keep_gen:
+                    shown.append(gen[-1][1])
             else:
                 imgs = m.get("images") or []
                 if imgs and m["id"] in keep_img:
@@ -411,6 +468,7 @@ class Assistant:
                     out.append({"role": "user", "content": f"{m['content']}\n\n{self.svc.uploads.omitted_note(imgs)}".strip()})
                 else:
                     out.append({"role": "user", "content": m["content"]})
+        flush_generated()
         return out
 
     async def context_usage(self, conv_id: str, effort: str | None = None, think: bool | None = None,
@@ -590,6 +648,8 @@ class Assistant:
         tools = [*TOOLS, SEND_IMAGE] if can_send_images else list(TOOLS)
         if include_disabled or self.svc.settings.effective().terminal_enabled:
             tools.append(RUN_COMMAND)
+        if include_disabled or self.svc.settings.effective().imagegen_enabled:
+            tools.append(GENERATE_IMAGE)
         return tools
 
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,

@@ -46,6 +46,7 @@ class ToolContext:
     workdir: str | None = None    # terminal working folder for this run
     memory_scopes: list[str] = field(default_factory=list)   # scopes this run may read
     memory_write_scope: str | None = None
+    counters: dict[str, int] = field(default_factory=dict)   # per-run usage caps (e.g. images generated)
 
 
 Handler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolOutput]]
@@ -271,6 +272,26 @@ async def t_terminal(ctx: ToolContext, a: dict) -> ToolOutput:
     return ToolOutput(_wrap("terminal_output", text), ok=ok)
 
 
+async def t_generate_image(ctx: ToolContext, a: dict) -> ToolOutput:
+    from . import imagegen
+    cap = ctx.settings.imagegen_max_per_run
+    if ctx.counters.get("images", 0) >= cap:
+        raise ActionError(f"Image limit reached ({cap} per run). Use the images you already have and call done.")
+    size = str(a.get("size") or "1024x1024")
+    seed = a.get("seed")
+    try:
+        img = await imagegen.generate(ctx.settings, str(a["prompt"]), size, int(seed) if seed not in (None, "") else None)
+    except (imagegen.ImageGenError, ValueError) as e:
+        raise ActionError(f"Image generation failed: {e}") from e
+    ctx.counters["images"] = ctx.counters.get("images", 0) + 1
+    left = cap - ctx.counters["images"]
+    note = imagegen.save_to_project(img, ctx.workdir, str(a["prompt"]))
+    return ToolOutput(f"Generated {img.width}x{img.height} image (seed {img.seed}, {img.seconds:.0f}s) saved at "
+                      f"{img.path}{note}. The image follows in the next message: check it against the request. If it does "
+                      f"not match, call generate_image again with a refined prompt ({left} left), otherwise continue.",
+                      images=[img.preview_data_url()])
+
+
 async def t_done(ctx: ToolContext, a: dict) -> ToolOutput:
     success = a.get("success", True)
     if isinstance(success, str):
@@ -314,6 +335,12 @@ def build_tools() -> dict[str, ToolSpec]:
                  {"full_page": {"type": "boolean"}}, [], t_look),
         ToolSpec("web_search", "Search the web; returns titles, URLs and snippets.", {"query": S}, ["query"],
                  t_web_search),
+        ToolSpec("generate_image", "Create an image from a text description with a local model (takes ~10-60 s). "
+                                   "Returns the file path and shows you the result so you can verify it. Describe "
+                                   "subject, setting, style and lighting concretely in English.",
+                 {"prompt": S, "size": {"type": "string", "enum": ["1024x1024", "768x768", "1024x768", "768x1024",
+                                                                    "1280x720", "720x1280", "512x512"]},
+                  "seed": {"type": "integer"}}, ["prompt"], t_generate_image, side_effect=True),
         ToolSpec("note", "Save a short fact to your notepad; it is kept even when history is compacted.",
                  {"text": S}, ["text"], t_note),
         ToolSpec("use_skill", "Load the full instructions of one of your skills by name.",

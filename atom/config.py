@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     terminal_timeout_s: int = 60
     terminal_restrict: bool = True   # guardrail: commands must stay inside the project folder
 
+    # --- Image generation (local Z-Image-Turbo service in ops/imagegen; off by default) ---
+    imagegen_enabled: bool = False
+    imagegen_url: str = "http://127.0.0.1:8090"
+    imagegen_timeout_s: int = 300    # per image; the first one also loads the model
+    imagegen_max_per_run: int = 4    # cap per agent run / chat turn so a loop cannot burn the GPU
+
     # --- Assistant / memory ---
     auto_approve_assistant_actions: bool = False
     chat_mode: str = "auto"            # default chat mode: auto | manual | plan

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
 
-cleanup() { echo; echo "stopping..."; kill "${LLM_PID:-}" "${API_PID:-}" 2>/dev/null || true; wait 2>/dev/null || true; }
+cleanup() { echo; echo "stopping..."; kill "${LLM_PID:-}" "${API_PID:-}" "${IMG_PID:-}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 if curl -sf http://127.0.0.1:8080/health >/dev/null 2>&1; then
@@ -14,6 +14,13 @@ else
   echo "starting model server (log: logs/llama-server.log) ..."
   ops/llama-server.sh > logs/llama-server.log 2>&1 &
   LLM_PID=$!
+fi
+
+# Optional image service (Z-Image). Only if the weights are present; see ops/imagegen/README.md.
+if [ -d data/models/z-image-turbo-4bit ] && ! curl -sf http://127.0.0.1:8090/health >/dev/null 2>&1; then
+  echo "starting image service (log: logs/imagegen.log) ..."
+  ops/imagegen/run.sh > logs/imagegen.log 2>&1 &
+  IMG_PID=$!
 fi
 
 if [ ! -d web/dist ]; then

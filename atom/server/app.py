@@ -258,9 +258,10 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def list_tools(request: Request):
         svc = svc_of(request)
         tools = {**build_tools(), **svc.mcp.tools, **svc.connectors.tools}
-        term = svc.settings.effective().terminal_enabled
+        eff = svc.settings.effective()
+        gate = {"terminal": eff.terminal_enabled, "generate_image": eff.imagegen_enabled}
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect,
-                 "enabled": term if t.name == "terminal" else True}
+                 "enabled": gate.get(t.name, True)}
                 for t in tools.values()]
 
     @app.get("/api/chat/tools")

@@ -43,6 +43,11 @@ Finishing:
 - If you cannot complete it, call done with success=false and explain what blocked you. Never invent data."""
 
 
+IMAGE_PROMPT = """
+
+Image generation:
+- generate_image(prompt) makes a picture with a local model and shows it to you. Write the prompt as a concrete English description (subject, setting, style, lighting, colours); keep any text inside the image short. After each image, compare it with what was asked; if something important is wrong or missing, call it again once or twice with a refined prompt, then report the file path of the best one in done(result)."""
+
 LOOK_PROMPT = """
 
 Vision:
@@ -125,6 +130,8 @@ class Agent:
         tools = dict(self.all_tools)
         if not vision:
             tools.pop("look", None)
+        if not vision or not self.s.imagegen_enabled:     # results are checked by looking at them
+            tools.pop("generate_image", None)
         if cfg.tool_names is not None:
             tools = {n: t for n, t in tools.items() if n in cfg.tool_names or n in ("done",)}
         # Shell access is opt-in twice: the global setting, and the agent must list `terminal` explicitly
@@ -142,6 +149,8 @@ class Agent:
         sp = SYSTEM_PROMPT
         if tools is not None and "look" in tools:
             sp += LOOK_PROMPT
+        if tools is not None and "generate_image" in tools:
+            sp += IMAGE_PROMPT
         if vs:
             sp += "\n\n" + vs.prompt_section()
         if tools is not None and "terminal" in tools:

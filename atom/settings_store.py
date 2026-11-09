@@ -72,6 +72,17 @@ SCHEMA: list[dict[str, Any]] = [
      "help": "Guardrail (recommended). Commands must run inside the project folder, and commands that reference "
              "paths outside it (absolute paths, ~, ..) are refused. This is a best-effort check, not a sandbox: "
              "a determined script can still get around it."},
+    # --- Image generation ---
+    {"key": "imagegen_enabled", "label": "Enable image generation", "group": "Image generation", "type": "boolean",
+     "help": "Gives the chat assistant and agents a generate_image tool backed by the local Z-Image service "
+             "(ops/imagegen). The model sees each result, so it can check it against the request and retry. "
+             "Needs the service running; it uses several GB while generating and unloads when idle."},
+    {"key": "imagegen_url", "label": "Image service URL", "group": "Image generation", "type": "text",
+     "help": "Where ops/imagegen/server.py listens."},
+    {"key": "imagegen_timeout_s", "label": "Image timeout (s)", "group": "Image generation", "type": "number",
+     "min": 30, "max": 1800, "step": 10, "help": "Per image. The first one also loads the model."},
+    {"key": "imagegen_max_per_run", "label": "Max images per run", "group": "Image generation", "type": "number",
+     "min": 1, "max": 20, "step": 1, "help": "Per agent run or chat turn, so a retry loop cannot tie up the machine."},
     # --- Assistant & memory ---
     {"key": "chat_mode", "label": "Default chat mode", "group": "Assistant & memory", "type": "select",
      "options": ["auto", "manual", "plan"],
