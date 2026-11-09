@@ -8,7 +8,7 @@
 
 <p align="center"><img src="docs/images/overview.png" alt="Atom dashboard" width="900"></p>
 
-**Your own AI agent that uses the web like you do, running entirely on your Mac.** Atom drives a real browser (Playwright) with a local 27B model on llama.cpp. No cloud API, no per-token bill, and your data and passwords stay on your machine. Built for an M1 Max 64 GB.
+**Your own AI agent that uses the web like you do, running entirely on your Mac.** Atom drives a real browser (Playwright) with a local 27B model on llama.cpp. No cloud API, no per-token bill, and your data and passwords stay on your machine.
 
 ## What you get
 
