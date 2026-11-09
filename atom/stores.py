@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .config import LLM_PROFILES
 from .db import Database, jdump, jload, new_id, now
 
 
@@ -38,7 +39,7 @@ class AgentStore:
                 "allowed_domains": jload(r["allowed_domains"], []), "allow_private": bool(r["allow_private"]),
                 "tools": jload(r["tools"], None), "skills": jload(r["skills"], []), "memory_scope": r["memory_scope"],
                 "thinking": r["thinking"], "effort": r["effort"], "max_steps": r["max_steps"],
-                "temperature": r["temperature"], "profile": r["profile"], "workdir": r["workdir"], "is_default": bool(r["is_default"]),
+                "temperature": r["temperature"], "profile": r["profile"], "workdir": r["workdir"], "model": r["model"], "is_default": bool(r["is_default"]),
                 "created_at": r["created_at"], "updated_at": r["updated_at"]}
 
     def _clean(self, d: dict, partial: bool = False) -> dict:
@@ -51,6 +52,11 @@ class AgentStore:
         for k in ("description", "instructions", "start_url", "profile"):
             if k in d:
                 out[k] = (d[k] or None) if k in ("start_url", "profile") else (d[k] or "")
+        if "model" in d:
+            m = d["model"] or None
+            if m is not None and m not in LLM_PROFILES:
+                raise Invalid(f"model must be empty (use the default) or one of {list(LLM_PROFILES)}")
+            out["model"] = m
         if "workdir" in d:
             wd = str(d["workdir"] or "").strip()
             if wd:
@@ -131,7 +137,7 @@ class AgentStore:
         aid, t = new_id(), now()
         row = {"id": aid, "description": "", "instructions": "", "start_url": None, "allowed_domains": "[]",
                "allow_private": 0, "tools": None, "skills": "[]", "memory_scope": "global", "thinking": "inherit",
-               "effort": "inherit", "max_steps": None, "temperature": None, "profile": None, "workdir": None,
+               "effort": "inherit", "max_steps": None, "temperature": None, "profile": None, "workdir": None, "model": None,
                "is_default": int(is_default), "created_at": t, "updated_at": t, **c}
         cols = ",".join(row)
         self.db.execute(f"INSERT INTO agents ({cols}) VALUES ({','.join('?' * len(row))})", list(row.values()))
@@ -577,11 +583,12 @@ class ConversationStore:
         if not self.exists(cid):
             raise NotFound(f"conversation {cid} not found")
         self.db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+        self.db.execute("DELETE FROM conversation_summaries WHERE conversation_id=?", (cid,))
         self.db.execute("DELETE FROM conversations WHERE id=?", (cid,))
 
     @staticmethod
     def _msg(r: sqlite3.Row) -> dict:
-        return {"id": r["id"], "role": r["role"], "content": r["content"] or "", "reasoning": r["reasoning"],
+        return {"id": r["id"], "seq": r["seq"], "role": r["role"], "content": r["content"] or "", "reasoning": r["reasoning"],
                 "tool_calls": jload(r["tool_calls"], None), "tool_call_id": r["tool_call_id"],
                 "action_id": r["action_id"], "run_id": r["run_id"], "stats": jload(r["stats"], None),
                 "images": jload(r["images"], []), "created_at": r["created_at"]}
@@ -591,7 +598,24 @@ class ConversationStore:
         if not c:
             raise NotFound(f"conversation {cid} not found")
         msgs = [self._msg(r) for r in self.db.all("SELECT * FROM messages WHERE conversation_id=? ORDER BY seq", (cid,))]
-        return {"id": cid, "title": c["title"], "project_id": c["project_id"], "messages": msgs}
+        return {"id": cid, "title": c["title"], "project_id": c["project_id"], "messages": msgs,
+                "summary": self.summary(cid)}
+
+    def summary(self, cid: str) -> dict | None:
+        """Rolling summary of the oldest messages. Messages are never deleted: those with seq <= upto_seq are simply
+        replaced by `text` in the model prompt, and tool results with seq <= pruned_upto are elided."""
+        r = self.db.one("SELECT * FROM conversation_summaries WHERE conversation_id=?", (cid,))
+        if not r:
+            return None
+        return {"upto_seq": r["upto_seq"], "pruned_upto": r["pruned_upto"], "text": r["text"], "at_seq": r["at_seq"],
+                "updated_at": r["updated_at"]}
+
+    def set_summary(self, cid: str, *, upto_seq: int, pruned_upto: int, text: str, at_seq: int) -> None:
+        self.db.execute(
+            "INSERT INTO conversation_summaries (conversation_id,upto_seq,pruned_upto,text,at_seq,updated_at) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET upto_seq=excluded.upto_seq, "
+            "pruned_upto=excluded.pruned_upto, text=excluded.text, at_seq=excluded.at_seq, updated_at=excluded.updated_at",
+            (cid, upto_seq, max(pruned_upto, upto_seq), text, at_seq, now()))
 
     def append(self, cid: str, role: str, content: str = "", *, reasoning: str | None = None,
                tool_calls: list | None = None, tool_call_id: str | None = None, action_id: str | None = None,

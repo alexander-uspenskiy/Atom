@@ -41,7 +41,7 @@ class RunManager:
             agent=agent, start_url=start_url or agent.get("start_url"),
             allowed_domains=agent["allowed_domains"] or None, allow_private=agent["allow_private"],
             max_steps=int(ov.get("max_steps") or agent.get("max_steps") or s.max_steps), thinking=thinking,
-            effort=effort, temperature=agent.get("temperature"), profile=profile, workdir=agent.get("workdir"), tool_names=agent["tools"],
+            effort=effort, temperature=agent.get("temperature"), profile=profile, workdir=agent.get("workdir"), model=agent.get("model"), tool_names=agent["tools"],
             skill_names=list(agent["skills"]), memory_scope=agent["memory_scope"], trigger=trigger,
             schedule_id=schedule_id)
 
@@ -51,7 +51,7 @@ class RunManager:
         row = self.runs.create(run_id, task, agent=cfg.agent, trigger=cfg.trigger, schedule_id=cfg.schedule_id,
                                config={"start_url": cfg.start_url, "allowed_domains": cfg.allowed_domains,
                                        "max_steps": cfg.max_steps, "thinking": cfg.thinking, "effort": cfg.effort,
-                                       "images": cfg.images},
+                                       "images": cfg.images, "model": cfg.model},
                                thinking=cfg.thinking, effort=cfg.effort, run_dir=str(s.runs_dir / run_id))
         self._cfg[run_id] = (task, cfg)
         return row

@@ -69,6 +69,7 @@ export default function AgentsPage() {
                 {a.effort && a.effort !== "inherit" && <Badge>effort {a.effort}</Badge>}
                 {a.max_steps != null && <Badge>{a.max_steps} steps</Badge>}
                 {a.temperature != null && <Badge>T {a.temperature}</Badge>}
+                {a.model && <Badge tone="accent">{a.model}</Badge>}
               </div>
               {(a.allowed_domains ?? []).length > 0 && (
                 <p className="truncate text-xs text-muted" title={(a.allowed_domains ?? []).join(", ")}>Domains: {truncate((a.allowed_domains ?? []).join(", "), 80)}</p>

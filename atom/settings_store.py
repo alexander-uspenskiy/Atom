@@ -4,13 +4,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import Settings
+from .config import LLM_PROFILES, Settings, profile_target
 from .db import Database, jdump, jload
 
 TZ_HELP = "IANA timezone used for schedules created by the assistant, e.g. America/New_York."
 
 SCHEMA: list[dict[str, Any]] = [
     # --- Model ---
+    {"key": "llm_profile", "label": "Model", "group": "Model", "type": "select", "options": list(LLM_PROFILES),
+     "help": "qwen = Qwen3.8-27B (:8080). arete = NousResearch Arete-27B 4-bit (:8081). Sets the URL and model name "
+             "below; start the matching server with ops/llama-server.sh <profile>."},
     {"key": "llm_base_url", "label": "LLM server URL", "group": "Model", "type": "text",
      "help": "OpenAI-compatible endpoint (llama-server). Changing this reconnects immediately."},
     {"key": "llm_model", "label": "Model name", "group": "Model", "type": "text",
@@ -38,6 +41,10 @@ SCHEMA: list[dict[str, Any]] = [
     {"key": "compact_at_tokens", "label": "Compact history at (tokens)", "group": "Agent limits", "type": "number",
      "min": 4000, "max": 30000, "step": 500,
      "help": "When the prompt grows past this, history is summarised (one slow re-read of the prompt)."},
+    {"key": "chat_compact_at", "label": "Summarise chats at (context %)", "group": "Agent limits", "type": "slider",
+     "min": 0.3, "max": 0.95, "step": 0.05,
+     "help": "When a chat fills this share of its context budget, old tool output is dropped and older messages are "
+             "folded into a summary (one slow re-read of the prompt). The ring in the chat shows the current share."},
     {"key": "max_observation_tokens", "label": "Max observation tokens", "group": "Agent limits", "type": "number",
      "min": 300, "max": 6000, "step": 100, "help": "Cap on what each action returns to the model. Prefill is slow, keep small."},
     {"key": "max_read_tokens", "label": "read_text chunk (tokens)", "group": "Agent limits", "type": "number",
@@ -154,6 +161,8 @@ class SettingsStore:
                 ZoneInfo(clean["timezone"])
             except Exception:  # noqa: BLE001
                 raise SettingsError(f"timezone: unknown timezone '{clean['timezone']}'") from None
+        if "llm_profile" in clean:  # a profile choice sets the server URL and model name together
+            clean["llm_base_url"], clean["llm_model"] = profile_target(clean["llm_profile"])
         for k, v in clean.items():
             self.db.execute("INSERT INTO settings (key, value) VALUES (?,?) "
                             "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, jdump(v)))

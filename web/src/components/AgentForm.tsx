@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { invalidate, useSkills, useTools } from "../api/hooks";
+import { invalidate, useModels, useSkills, useTools } from "../api/hooks";
 import type { Agent, AgentInput, Effort, Thinking } from "../api/types";
 import { errMsg } from "../lib/format";
 import { Button } from "./ui/Button";
@@ -46,12 +46,13 @@ export function OptionalNumber({
 
 const blank: AgentInput = {
   name: "", description: "", instructions: "", start_url: null, allowed_domains: [], allow_private: false,
-  tools: null, skills: [], memory_scope: "agent", thinking: "inherit", effort: "inherit", max_steps: null, temperature: null, profile: null, workdir: null,
+  tools: null, skills: [], memory_scope: "agent", thinking: "inherit", effort: "inherit", max_steps: null, temperature: null, profile: null, workdir: null, model: null,
 };
 
 export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: () => void; agent?: Agent | null }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const models = useModels();
   const tools = useTools();
   const skills = useSkills();
   const [f, setF] = useState<AgentInput>(blank);
@@ -151,6 +152,10 @@ export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: ()
           </Field>
           <Field label="Effort" htmlFor="ag-effort">
             <Select id="ag-effort" value={f.effort ?? "inherit"} onChange={(e) => set("effort", e.target.value as Effort)} options={[...EFFORT_OPTS]} />
+          </Field>
+          <Field label="Model" htmlFor="ag-model" hint="Which model runs this agent. Default follows the model chosen in the sidebar.">
+            <Select id="ag-model" value={f.model ?? ""} onChange={(e) => set("model", e.target.value || null)}
+              options={[{ value: "", label: "Default (active model)" }, ...(models.data?.models ?? []).map((m) => ({ value: m.id, label: `${m.label}${m.installed ? "" : " (not downloaded)"}` }))]} />
           </Field>
           <Field label="Max steps">
             <OptionalNumber label="Max steps" min={1} max={500} value={f.max_steps ?? null} onChange={(v) => set("max_steps", v)} />

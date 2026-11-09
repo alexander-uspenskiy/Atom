@@ -6,6 +6,7 @@ import {
 import { useGlobalEvents, useStatus } from "../api/hooks";
 import { useTheme } from "../lib/theme";
 import { cn } from "../lib/cn";
+import { ModelSwitcher } from "./ModelSwitcher";
 
 interface NavDef { to: string; label: string; icon: LucideIcon; end?: boolean; badge?: "approvals" | "runs" }
 const NAV: NavDef[] = [
@@ -36,10 +37,12 @@ export function LlmIndicator() {
         aria-hidden
       />
       <div className="hidden min-w-0 flex-1 lg:block">
-        <div className="truncate text-xs font-medium">{llm?.model ?? (isError ? "Backend offline" : "—")}</div>
-        <div className="text-[11px] text-muted">
-          {isError ? "no connection" : healthy ? `${busy}/${slots.length || "?"} slots busy` : "LLM down"}
-        </div>
+        <ModelSwitcher>
+          <div className="truncate text-xs font-medium">{llm?.model ?? (isError ? "Backend offline" : "—")}</div>
+          <div className="text-[11px] text-muted">
+            {isError ? "no connection" : healthy ? `${busy}/${slots.length || "?"} slots busy` : "LLM down · click to switch"}
+          </div>
+        </ModelSwitcher>
       </div>
       <span className="sr-only lg:hidden">{healthy ? "LLM healthy" : "LLM down"}</span>
     </div>

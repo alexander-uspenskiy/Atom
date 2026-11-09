@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 
 from .. import stats as stats_mod
 from ..assistant import Assistant
-from ..config import ROOT
+from ..config import LLM_PROFILES, ROOT
 from ..events import PING
 from ..llm import LLMError
 from ..scheduler import describe, normalize_trigger, preview
@@ -157,7 +157,7 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                 vision = False
         roles = {eff.agent_slot: "agent", eff.extract_slot: "extract", eff.chat_slot: "chat"}
         return {"version": VERSION,
-                "llm": {"healthy": healthy, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,
+                "llm": {"healthy": healthy, "profile": eff.llm_profile, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,
                         "slots": [{**s, "role": roles.get(s["id"], "other")} for s in slots]},
                 "runs": {"running": svc.run_manager.running_ids(), "queued": svc.run_manager.queued_count(),
                          "max_concurrent": eff.max_concurrent_runs},
@@ -200,6 +200,44 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         svc = svc_of(request)
         svc.settings.update(body.get("values") or {})
         return svc.settings.payload()
+
+    # ------------------------------------------------------------------ models
+    @app.get("/api/models")
+    async def list_models(request: Request):
+        svc = svc_of(request)
+        return {"active": svc.settings.effective().llm_profile, "models": await svc.models.list()}
+
+    @app.post("/api/models/{profile}/activate")
+    async def activate_model(request: Request, profile: str, body: dict = Body(default={})):
+        """Make `profile` the default model. Starts its server if it is downloaded but not running."""
+        svc = svc_of(request)
+        if profile not in LLM_PROFILES:
+            raise NotFound(f"unknown model '{profile}'")
+        svc.settings.update({"llm_profile": profile})
+        if body.get("start", True) and svc.models.installed(profile) and not await svc.models.running(profile):
+            svc.models.start(profile)
+        svc.bus.publish_global("status", status=await status_payload(svc))
+        return {"active": profile, "models": await svc.models.list()}
+
+    @app.post("/api/models/{profile}/{action}")
+    async def model_action(request: Request, profile: str, action: str):
+        svc = svc_of(request)
+        if profile not in LLM_PROFILES:
+            raise NotFound(f"unknown model '{profile}'")
+        if action == "start":
+            if not svc.models.installed(profile):
+                raise Conflict(f"{LLM_PROFILES[profile]['label']} is not downloaded yet")
+            if not await svc.models.running(profile):
+                svc.models.start(profile)
+        elif action == "stop":
+            if not svc.models.managed(profile):
+                raise Conflict("this server was not started by Atom; stop it in the terminal that runs it")
+            svc.models.stop(profile)
+        elif action == "download":
+            svc.models.download(profile)
+        else:
+            raise NotFound(f"unknown action '{action}'")
+        return {"active": svc.settings.effective().llm_profile, "models": await svc.models.list()}
 
     @app.get("/api/fs/dirs")
     async def fs_dirs(path: str = Query("")):
@@ -579,6 +617,15 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         svc = svc_of(request)
         proj = svc.conversations.project_of(cid)
         return await svc.assistant.context_usage(cid, effort, thinking, workdir=(proj or {}).get("folder"))
+
+    @app.post("/api/conversations/{cid}/compact")
+    async def compact_conversation(request: Request, cid: str, body: dict = Body(default={})):
+        """Manual 'compact now': prune old tool output and fold older messages into the rolling summary."""
+        svc = svc_of(request)
+        if not svc.conversations.exists(cid):
+            raise NotFound(f"conversation {cid} not found")
+        proj = svc.conversations.project_of(cid)
+        return await svc.assistant.compact(cid, body.get("thinking"), body.get("effort"), workdir=(proj or {}).get("folder"))
 
     @app.put("/api/conversations/{cid}")
     async def rename_conversation(request: Request, cid: str, body: dict = Body(...)):

@@ -6,6 +6,7 @@ import type { GlobalEvent, Status } from "./types";
 
 export const qk = {
   status: ["status"] as const,
+  models: ["models"] as const,
   settings: ["settings"] as const,
   agents: ["agents"] as const,
   tools: ["tools"] as const,
@@ -26,6 +27,8 @@ export const qk = {
 };
 
 export const useStatus = () => useQuery({ queryKey: qk.status, queryFn: api.status, refetchInterval: 15000 });
+export const useModels = (poll: number | false = false) =>
+  useQuery({ queryKey: qk.models, queryFn: api.models, refetchInterval: poll });
 export const useUploadInfo = (id: string) => useQuery({ queryKey: ["upload", id], queryFn: () => api.uploadInfo(id), staleTime: Infinity, retry: false });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.settings });
 export const useAgents = () => useQuery({ queryKey: qk.agents, queryFn: api.agents });

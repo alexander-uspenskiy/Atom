@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderGit2, MessageSquarePlus, MessagesSquare, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, streamChat } from "../api/client";
 import { qk, useActions, useConversations, useProjects } from "../api/hooks";
-import type { ConversationInfo, Message, PendingAction, Project } from "../api/types";
+import type { ConversationInfo, ConversationSummary, Message, PendingAction, Project } from "../api/types";
 import { emptyTurn, turnReducer, type ToolView } from "../lib/chatState";
 import { lsGet, lsSet } from "../lib/storage";
 import { errMsg, fmtRelative, truncate } from "../lib/format";
@@ -51,12 +51,17 @@ function parseToolResult(content?: string | null): { ok?: boolean; result: unkno
 /** Convert persisted messages into render models (tool results folded into their calls). */
 const countUsers = (ms?: Message[]) => (ms ?? []).filter((m) => m.role === "user").length;
 
-function toViews(messages: Message[], actions: Map<string, PendingAction>): ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView })[] {
+function toViews(messages: Message[], actions: Map<string, PendingAction>, summary?: ConversationSummary | null): ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView } | { kind: "summary"; text: string; id: string })[] {
   const toolMsgs = new Map<string, Message>();
   for (const m of messages) if (m.role === "tool" && m.tool_call_id) toolMsgs.set(m.tool_call_id, m);
   const claimed = new Set<string>();
-  const out: ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView })[] = [];
+  const out: ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView } | { kind: "summary"; text: string; id: string })[] = [];
+  let divided = !summary?.text;
   for (const m of messages) {
+    if (!divided && (m.seq ?? 0) > (summary?.upto_seq ?? 0)) {
+      out.push({ kind: "summary", text: summary?.text ?? "", id: "summary" });
+      divided = true;
+    }
     if (m.role === "user") out.push({ kind: "user", m });
     else if (m.role === "assistant") {
       const tools: ToolView[] = [];
@@ -220,7 +225,7 @@ export default function ChatPage() {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const actionMap = useMemo(() => new Map((actionsQ.data ?? []).map((a) => [a.id, a])), [actionsQ.data]);
-  const views = useMemo(() => toViews(convQ.data?.messages ?? [], actionMap), [convQ.data?.messages, actionMap]);
+  const views = useMemo(() => toViews(convQ.data?.messages ?? [], actionMap, convQ.data?.summary), [convQ.data?.messages, actionMap, convQ.data?.summary]);
   const showTurn = turn.user !== null && turnConv.current === convId;
   // A mid-stream refetch can already contain the persisted user message; don't show it twice.
   const userPersisted = countUsers(convQ.data?.messages) > baseUsers.current;
@@ -359,7 +364,12 @@ export default function ChatPage() {
                 <EmptyState icon={MessagesSquare} title="Empty conversation" hint="Send a message to begin." />
               )}
               {views.map((x) =>
-                x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} images={x.m.images} /> : <AssistantView key={x.v.key} v={x.v} />,
+                x.kind === "summary" ? (
+                  <details key={x.id} className="rounded-md border border-dashed border-line px-3 py-1.5 text-xs text-muted" data-testid="summary-divider">
+                    <summary className="cursor-pointer select-none">Earlier messages were summarised to save context. The model sees this summary instead of them.</summary>
+                    <div className="mt-2 whitespace-pre-wrap text-fg">{x.text}</div>
+                  </details>
+                ) : x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} images={x.m.images} /> : <AssistantView key={x.v.key} v={x.v} />,
               )}
               {showTurn && (
                 <>
@@ -373,6 +383,7 @@ export default function ChatPage() {
                   {turn.streaming && (turn.msgs.length === 0 || turn.msgs[turn.msgs.length - 1].ended) && (
                     <AssistantView v={{ key: "pending", reasoning: "", content: "", tools: [], actions: [], pendingActionIds: [], runIds: [], streaming: true }} />
                   )}
+                  {turn.note && <p className="text-xs text-muted" role="status">{turn.note}</p>}
                   {turn.error && (
                     <div role="alert" className="rounded-md border border-err/40 bg-err/10 px-3 py-2 text-sm text-err">{turn.error}</div>
                   )}
@@ -392,6 +403,7 @@ export default function ChatPage() {
             attachments={attachments}
             project={activeProject}
             convId={convId}
+            onCompacted={() => void qc.invalidateQueries({ queryKey: qk.conversation(convId ?? "") })}
           />
         </section>
       </div>

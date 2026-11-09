@@ -1,7 +1,7 @@
 import type {
-  Agent, AgentInput, ChatBody, ChatEvent, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
+  Agent, AgentInput, ChatBody, ChatEvent, CompactResult, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
-  UploadInfo, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
+  UploadInfo, ModelsPayload, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
 import { parseJSON, readSSE } from "./sse";
 
@@ -61,6 +61,9 @@ export interface MemoryFilters { q?: string; scope?: string; pinned?: boolean; s
 
 export const api = {
   status: () => req<Status>("GET", "/status"),
+  models: () => req<ModelsPayload>("GET", "/models"),
+  activateModel: (id: string) => req<ModelsPayload>("POST", `/models/${id}/activate`, { start: true }),
+  modelAction: (id: string, action: "start" | "stop" | "download") => req<ModelsPayload>("POST", `/models/${id}/${action}`),
 
   settings: () => req<SettingsResponse>("GET", "/settings"),
   saveSettings: (values: Record<string, SettingValue>) => req<SettingsResponse>("PUT", "/settings", { values }),
@@ -142,6 +145,8 @@ export const api = {
   conversation: (id: string) => req<Conversation>("GET", `/conversations/${encodeURIComponent(id)}`),
   conversationContext: (id: string, o: { effort?: string; thinking?: boolean } = {}) =>
     req<ContextUsage>("GET", `/conversations/${encodeURIComponent(id)}/context${qs({ effort: o.effort, thinking: o.thinking })}`),
+  compactConversation: (id: string, o: { effort?: string; thinking?: boolean } = {}) =>
+    req<CompactResult>("POST", `/conversations/${encodeURIComponent(id)}/compact`, o),
   renameConversation: (id: string, title: string) =>
     req<ConversationInfo>("PUT", `/conversations/${encodeURIComponent(id)}`, { title }),
   deleteConversation: (id: string) => req<void>("DELETE", `/conversations/${encodeURIComponent(id)}`),

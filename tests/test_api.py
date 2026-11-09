@@ -601,3 +601,65 @@ def test_conversation_context_usage(client, fake):
     u = client.get(f"/api/conversations/{conv['id']}/context").json()
     assert u["exact"] is True and u["used"] == 4100 and 0 < u["pct"] < 1
     assert client.get("/api/conversations/nope/context").status_code == 404
+
+
+def test_chat_compacts_into_rolling_summary(client, fake):
+    client.put("/api/settings", json={"values": {"chat_compact_at": 0.3}})
+    conv = client.post("/api/conversations", json={}).json()
+    url = f"/api/conversations/{conv['id']}/messages"
+    fake.push({"content": "one", "prompt": 20000, "out": 20}, {"content": "two", "prompt": 20000, "out": 20},
+              {"content": "SUMMARY TEXT"})
+    ev1 = read_sse(client, "POST", url, {"content": "FIRSTMARK " + "x" * 40000})
+    assert [e["summarised"] for e in ev1 if e["type"] == "compacted"] == [0]    # one turn: nothing can be folded yet
+    ev2 = read_sse(client, "POST", url, {"content": "SECONDMARK " + "y" * 40000})
+    types = [e["type"] for e in ev2]
+    assert types.index("compact_start") < types.index("compacted") < types.index("done")
+    done = next(e for e in ev2 if e["type"] == "compacted")
+    assert done["summarised"] == 2 and done["summary_failed"] is False
+    data = client.get(f"/api/conversations/{conv['id']}").json()
+    assert data["summary"]["text"] == "SUMMARY TEXT" and data["summary"]["upto_seq"] == 2
+    assert len(data["messages"]) == 4                                           # nothing is deleted
+    ctx = client.get(f"/api/conversations/{conv['id']}/context").json()
+    assert ctx["exact"] is False and ctx["summarised_messages"] == 2 and ctx["used"] < 20000   # ring drops
+    read_sse(client, "POST", url, {"content": "third"})
+    prompt = fake.calls[-1]["messages"]
+    assert "SUMMARY TEXT" in prompt[0]["content"]
+    assert not any("FIRSTMARK" in (m.get("content") or "") for m in prompt)
+    assert any("SECONDMARK" in (m.get("content") or "") for m in prompt)
+
+
+def test_compact_prunes_old_tool_output_without_a_model_call(client, fake):
+    svc = client.app.state.svc
+    conv = client.post("/api/conversations", json={}).json()
+    cid = conv["id"]
+    for i in range(3):
+        svc.conversations.append(cid, "user", f"q{i}")
+        svc.conversations.append(cid, "assistant", "", tool_calls=[{"id": f"c{i}", "name": "list_agents", "arguments": {}}])
+        svc.conversations.append(cid, "tool", f"RESULT{i} " + "z" * 800, tool_call_id=f"c{i}")
+        svc.conversations.append(cid, "assistant", f"a{i}")
+    n_calls = len(fake.calls)
+    r = client.post(f"/api/conversations/{cid}/compact", json={}).json()
+    assert r["pruned"] is True and r["summarised"] == 0 and len(fake.calls) == n_calls
+    tools = [m for m in svc.assistant._history(cid) if m["role"] == "tool"]
+    assert [("omitted" in m["content"]) for m in tools] == [True, False, False][:len(tools)] or \
+        sum("omitted" in m["content"] for m in tools) == 1
+    assert "RESULT2" in tools[-1]["content"]
+    assert client.post("/api/conversations/nope/compact", json={}).status_code == 404
+
+
+def test_models_list_and_activate(client, svc, monkeypatch):
+    monkeypatch.setattr(svc.models, "start", lambda p: None)
+    monkeypatch.setattr(svc.models, "installed", lambda p: True)
+    r = client.get("/api/models").json()
+    assert {m["id"] for m in r["models"]} == {"qwen", "arete"} and r["active"] == "qwen"
+    r = client.post("/api/models/arete/activate").json()
+    assert r["active"] == "arete"
+    st = client.get("/api/status").json()["llm"]
+    assert st["model"] == "arete-27b" and st["base_url"].endswith(":8081/v1")
+    assert client.post("/api/models/nope/activate").status_code == 404
+
+
+def test_agent_model_choice(client, svc, fake):
+    a = client.post("/api/agents", json={"name": "ares", "model": "arete"}).json()
+    assert a["agent"]["model"] == "arete" if "agent" in a else a["model"] == "arete"
+    assert client.post("/api/agents", json={"name": "bad", "model": "gpt"}).status_code == 422

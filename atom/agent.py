@@ -62,6 +62,7 @@ class RunConfig:
     effort: str = "low"             # low | medium | xhigh
     temperature: float | None = None
     profile: Path | None = None
+    model: str | None = None        # model profile for this agent (None = the active one)
     workdir: str | None = None      # terminal working folder (agent setting; falls back to the global one)
     tool_names: list[str] | None = None
     skill_names: list[str] = field(default_factory=list)
@@ -171,11 +172,12 @@ class Agent:
             if extra:
                 cfg = replace(cfg, skill_names=[*cfg.skill_names, *extra])
         run_dir = s.runs_dir / run_id
+        llm = self.llm.bind(cfg.model) if cfg.model and hasattr(self.llm, "bind") else self.llm
         policy = Policy(allowed_domains=cfg.allowed_domains, allow_private=cfg.allow_private)
         server_vision = False
-        if hasattr(self.llm, "vision"):
+        if hasattr(llm, "vision"):
             try:
-                server_vision = bool(await self.llm.vision())
+                server_vision = bool(await llm.vision())
             except Exception:  # noqa: BLE001
                 server_vision = False
         vision = s.agent_vision and server_vision
@@ -184,7 +186,7 @@ class Agent:
         vs = self.variables.snapshot() if self.variables is not None else None
         schemas = [t.schema() for t in tools.values()]
         scopes, write_scope = self._scopes(cfg)
-        ctx = ToolContext(session=session, llm=self.llm, settings=s, agent=cfg.agent, run_id=run_id,
+        ctx = ToolContext(session=session, llm=llm, settings=s, agent=cfg.agent, run_id=run_id,
                           skills=self.skills, memory=self.memory, actions=self.actions,
                           workdir=cfg.workdir, skill_names=cfg.skill_names, memory_scopes=scopes, memory_write_scope=write_scope)
         t_start = time.perf_counter()
@@ -287,7 +289,7 @@ class Agent:
                         flush(step)
                         last_flush = time.monotonic()
 
-                res = await self.llm.chat(messages, tools=[*schemas], think=think, effort=cfg.effort, slot=slot,
+                res = await llm.chat(messages, tools=[*schemas], think=think, effort=cfg.effort, slot=slot,
                                           max_tokens=max_tokens, temperature=None if think else cfg.temperature,
                                           on_delta=on_delta)
                 flush(llm_n)

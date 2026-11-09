@@ -16,11 +16,11 @@ export type ChatEffort = "low" | "medium" | "xhigh";
 export interface ChatPrefs { thinking: boolean; effort: ChatEffort; workdir?: string; mode?: ChatMode }
 
 export function Composer({
-  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project, convId,
+  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project, convId, onCompacted,
 }: {
   value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; streaming: boolean;
   prefs: ChatPrefs; onPrefs: (p: ChatPrefs) => void; disabled?: boolean; autoFocusKey?: string | null;
-  attachments: AttachmentsApi; project?: Project | null; convId?: string | null;
+  attachments: AttachmentsApi; project?: Project | null; convId?: string | null; onCompacted?: () => void;
 }) {
   const hasContent = !!value.trim() || attachments.ids.length > 0;
   const canSend = hasContent && !attachments.busy && !disabled;
@@ -133,7 +133,7 @@ export function Composer({
             Skills ({skillCount ?? "…"})
           </button>
           <div className="ml-auto flex items-center gap-3">
-            {convId && <ContextRing convId={convId} thinking={prefs.thinking} effort={prefs.effort} />}
+            {convId && <ContextRing convId={convId} thinking={prefs.thinking} effort={prefs.effort} busy={streaming} onCompacted={onCompacted} />}
             {streaming ? (
               <Button size="sm" variant="danger" icon={<Square className="h-3.5 w-3.5" />} onClick={onStop}>Stop</Button>
             ) : (

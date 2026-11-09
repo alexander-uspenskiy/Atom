@@ -14,7 +14,7 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
-from .config import Settings
+from .config import LLM_PROFILES, Settings, profile_target
 
 
 class LLMError(RuntimeError):
@@ -58,8 +58,8 @@ class LLM:
         self._client = self._make_client(settings)
 
     @staticmethod
-    def _make_client(s: Settings) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=s.llm_base_url, timeout=httpx.Timeout(900, connect=5),
+    def _make_client(s: Settings, base_url: str | None = None) -> httpx.AsyncClient:
+        return httpx.AsyncClient(base_url=base_url or s.llm_base_url, timeout=httpx.Timeout(900, connect=5),
                                  headers={"Authorization": f"Bearer {s.llm_api_key}"})
 
     def reconfigure(self, settings: Settings) -> None:
@@ -73,31 +73,42 @@ class LLM:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    def _root(self) -> str:
-        return self.s.llm_base_url.removesuffix("/").removesuffix("/v1")
+    def target(self, profile: str | None = None) -> tuple[str, str]:
+        """(base_url, model alias) for a model profile; None or the active profile means the configured server."""
+        if profile and profile != self.s.llm_profile and profile in LLM_PROFILES:
+            return profile_target(profile)
+        return self.s.llm_base_url, self.s.llm_model
 
-    async def healthy(self) -> bool:
+    def bind(self, profile: str | None) -> "LLM | BoundLLM":
+        return BoundLLM(self, profile) if profile else self
+
+    def _root(self, profile: str | None = None) -> str:
+        return self.target(profile)[0].removesuffix("/").removesuffix("/v1")
+
+    async def healthy(self, profile: str | None = None) -> bool:
         try:
-            r = await self._client.get(self._root() + "/health", timeout=3)
+            r = await self._client.get(self._root(profile) + "/health", timeout=3)
             return r.status_code == 200
         except httpx.HTTPError:
             return False
 
-    async def vision(self) -> bool:
-        """Whether llama-server was started with a vision projector (--mmproj). Cached once true."""
-        if getattr(self, "_vision", False):
+    async def vision(self, profile: str | None = None) -> bool:
+        """Whether llama-server was started with a vision projector (--mmproj). Cached once true, per server."""
+        root = self._root(profile)
+        cache = self.__dict__.setdefault("_vision_by_root", {})
+        if cache.get(root):
             return True
         try:
-            r = await self._client.get(self._root() + "/props", timeout=3)
-            self._vision = bool((r.json().get("modalities") or {}).get("vision")) if r.status_code == 200 else False
+            r = await self._client.get(root + "/props", timeout=3)
+            cache[root] = bool((r.json().get("modalities") or {}).get("vision")) if r.status_code == 200 else False
         except Exception:  # noqa: BLE001
-            self._vision = False
-        return self._vision
+            cache[root] = False
+        return cache[root]
 
-    async def slots(self) -> list[dict]:
+    async def slots(self, profile: str | None = None) -> list[dict]:
         """Live slot info from llama-server (/slots). Empty if unavailable."""
         try:
-            r = await self._client.get(self._root() + "/slots", timeout=3)
+            r = await self._client.get(self._root(profile) + "/slots", timeout=3)
             data = r.json() if r.status_code == 200 else []
             return [{"id": d.get("id"), "busy": bool(d.get("is_processing")), "n_ctx": d.get("n_ctx")} for d in data]
         except Exception:  # noqa: BLE001
@@ -107,10 +118,11 @@ class LLM:
     async def chat(self, messages: list[dict], *, tools: list[dict] | None = None, think: bool = False,
                    effort: str = "low", slot: int | None = None, json_schema: dict | None = None,
                    max_tokens: int = 1024, temperature: float | None = None,
-                   on_delta: DeltaCb | None = None) -> LLMResult:
+                   on_delta: DeltaCb | None = None, profile: str | None = None) -> LLMResult:
         s = self.s
+        base_url, model = self.target(profile)
         body: dict[str, Any] = {
-            "model": s.llm_model, "messages": messages, "max_tokens": max_tokens,
+            "model": model, "messages": messages, "max_tokens": max_tokens,
             "temperature": s.temperature if temperature is None else temperature,
             "top_p": s.top_p, "top_k": s.top_k, "presence_penalty": s.presence_penalty,
             "cache_prompt": True, "stream": True, "stream_options": {"include_usage": True},
@@ -130,7 +142,7 @@ class LLM:
         for attempt in range(3):
             t0 = time.perf_counter()
             try:
-                return await self._stream_once(body, t0, on_delta)
+                return await self._stream_once(body, t0, on_delta, base_url)
             except _Retryable as e:
                 last_exc = e
                 await asyncio.sleep(2 * (attempt + 1))
@@ -139,7 +151,7 @@ class LLM:
                 raise LLMError(f"LLM connection failed: {e}") from e
         raise LLMError(f"LLM call failed: {last_exc}")
 
-    async def _stream_once(self, body: dict, t0: float, on_delta: DeltaCb | None) -> LLMResult:
+    async def _stream_once(self, body: dict, t0: float, on_delta: DeltaCb | None, base_url: str | None = None) -> LLMResult:
         content: list[str] = []
         reasoning: list[str] = []
         calls: dict[int, dict[str, str]] = {}
@@ -149,7 +161,7 @@ class LLM:
         started = False
         # One dedicated connection per generation, closed explicitly on exit. A pooled connection that was
         # cancelled mid-stream can linger, and then llama-server keeps generating tokens nobody will read.
-        client = self._make_client(self.s)
+        client = self._make_client(self.s, base_url)
         try:
             async with client.stream("POST", "/chat/completions", json=body) as r:
                 if r.status_code >= 500 or r.status_code == 429:
@@ -242,3 +254,23 @@ async def _emit(cb: DeltaCb | None, channel: str, text: str) -> None:
     r = cb(channel, text)
     if inspect.isawaitable(r):
         await r
+
+
+class BoundLLM:
+    """An LLM pinned to one model profile (per-agent model choice); everything else delegates."""
+
+    def __init__(self, llm: LLM, profile: str):
+        self._llm, self.profile = llm, profile
+
+    async def chat(self, *a: Any, **kw: Any) -> LLMResult:
+        kw.setdefault("profile", self.profile)
+        return await self._llm.chat(*a, **kw)
+
+    async def healthy(self) -> bool:
+        return await self._llm.healthy(self.profile)
+
+    async def vision(self) -> bool:
+        return await self._llm.vision(self.profile)
+
+    async def slots(self) -> list[dict]:
+        return await self._llm.slots(self.profile)

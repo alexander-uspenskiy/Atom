@@ -15,10 +15,29 @@ def _local_tz() -> str:
         return "UTC"
 
 
+# Model profiles: each runs as its own llama-server (ops/llama-server.sh <profile>) so both can stay loaded.
+LLM_PROFILES: dict[str, dict] = {
+    "qwen": {"label": "Qwen3.8-27B", "detail": "Unsloth UD-Q4_K_M, 4-bit", "port": 8080, "alias": "qwen3.8-27b",
+             "repo": "unsloth/Qwen3.8-27B-GGUF", "files": ["Qwen3.8-27B-UD-Q4_K_M.gguf", "mmproj-F16.gguf"],
+             "size_gb": 17.5},
+    "arete": {"label": "Arete-27B", "detail": "NousResearch fine-tune of Qwen3.8-27B, Q4_K_M 4-bit", "port": 8081,
+              "alias": "arete-27b", "repo": "bartowski/NousResearch_Arete-27B-GGUF",
+              "files": ["NousResearch_Arete-27B-Q4_K_M.gguf", "mmproj-NousResearch_Arete-27B-f16.gguf"],
+              "size_gb": 18.1},
+}
+
+
+def profile_target(profile: str) -> tuple[str, str]:
+    """(base_url, model alias) of a model profile."""
+    p = LLM_PROFILES[profile]
+    return f"http://127.0.0.1:{p['port']}/v1", p["alias"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ATOM_", env_file=".env", extra="ignore")
 
     # --- LLM (OpenAI-compatible server, llama-server by default) ---
+    llm_profile: str = "qwen"    # qwen | arete: picks the server below (see LLM_PROFILES)
     llm_base_url: str = "http://127.0.0.1:8080/v1"
     llm_model: str = "qwen3.8-27b"
     llm_api_key: str = "local"
@@ -42,6 +61,7 @@ class Settings(BaseSettings):
     max_steps: int = 76              # was 38 (+100%)
     max_wall_s: int = 2700           # was 1350 (+100%)
     ctx_per_slot: int = 32768
+    chat_compact_at: float = 0.75    # summarise a chat once it fills this share of its prompt budget
     compact_at_tokens: int = 20000   # compact history once the prompt grows past this
     max_observation_tokens: int = 1500
     max_read_tokens: int = 3000

@@ -10,6 +10,7 @@ from .connectors import ConnectorManager
 from .db import Database
 from .events import EventBus
 from .llm import LLM
+from .models import ModelManager
 from .mcp import McpManager
 from .notify import RunNotifier
 from .runs import RunManager
@@ -30,6 +31,7 @@ class Services:
         eff = self.settings.effective()
         self.bus = EventBus(self.db)
         self.llm = llm or LLM(eff)
+        self.models = ModelManager(self.settings.effective)
         self.tool_names = list(build_tools())          # mutated in place when MCP tools connect
         self.mcp = McpManager(eff.data_dir / "mcp.json")
         self.connectors = ConnectorManager(self.db)

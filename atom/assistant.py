@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime
 from typing import Any, AsyncIterator
@@ -16,6 +17,8 @@ from zoneinfo import ZoneInfo
 from .llm import LLMError
 from .scheduler import describe, normalize_trigger
 from .stores import Conflict, Invalid, NotFound
+
+log = logging.getLogger(__name__)
 
 SYSTEM = """You are the Atom assistant inside the Atom dashboard. Atom runs web agents (a real browser driven by a local model) on demand or on a schedule. You help the user inquire about the system and manage it using tools.
 
@@ -117,8 +120,30 @@ MODE_PROMPTS = {
              "risks) and tell the user to switch to Auto or Manual mode to carry it out."),
 }
 MAX_HISTORY_IMAGE_MESSAGES = 2
+COMPACT_KEEP = 0.25               # after summarising, the newest ~25% of the prompt budget stays verbatim
+COMPACT_TARGET = 0.35             # ... and pruning alone is enough once the prompt is under this share
+COMPACT_KEEP_MAX_MSGS = 20
+GUARD_AT = 0.95                   # hard guard: compact before a model call that would not fit
+SUMMARY_SYSTEM = (
+    "You maintain a rolling summary of a long conversation between a user and an assistant that can schedule runs, "
+    "create agents, save memories and run commands. Merge the previous summary with the new messages into ONE updated "
+    "summary of at most ~450 words, in these sections (omit a section only if empty):\n"
+    "## User goals & preferences\n## Decisions made\n## Facts, names, paths, IDs, numbers (exact values)\n"
+    "## Work done & results\n## Open questions & next steps\n"
+    "Keep exact identifiers, file paths, commands, URLs and numbers verbatim. Drop pleasantries, retries and "
+    "superseded information. Output only the summary.")
 HISTORY_MESSAGES = 40             # the chat prompt only ever carries the newest N messages
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
+
+
+def _est_msg(m: dict) -> int:
+    """Rough token estimate of one chat message (OpenAI shape or a stored row): ~3.5 chars/token, 1500 per image."""
+    c = m.get("content")
+    if isinstance(c, list):
+        n = sum(len(p.get("text") or "") / 3.5 if p.get("type") == "text" else 1500 for p in c)
+    else:
+        n = len(c or "") / 3.5
+    return int(n + len(json.dumps(m.get("tool_calls") or "")) / 3.5) + 8
 
 
 class Assistant:
@@ -333,9 +358,18 @@ class Assistant:
     # ------------------------------------------------------------------ conversation
     def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None,
                  mode: str = "auto") -> list[dict]:
-        msgs = self.svc.conversations.get(conv_id)["messages"][-HISTORY_MESSAGES:]
+        conv = self.svc.conversations.get(conv_id)
+        sm = conv["summary"]
+        msgs = conv["messages"]
+        if sm:
+            msgs = [m for m in msgs if m["seq"] > sm["upto_seq"]]
+        msgs = msgs[-HISTORY_MESSAGES:]
         while msgs and msgs[0]["role"] == "tool":
             msgs = msgs[1:]
+        if sm and sm["pruned_upto"]:       # old tool output was dropped by a compaction; stable until the next one
+            msgs = [{**m, "content": f"[tool result omitted to save context: {len(m['content'])} chars]"}
+                    if m["role"] == "tool" and m["seq"] <= sm["pruned_upto"] and len(m["content"]) > 200 else m
+                    for m in msgs]
         sys = SYSTEM + f"\n\nUser's timezone: {self.svc.settings.effective().timezone}."
         if mode in MODE_PROMPTS:
             sys += "\n\n" + MODE_PROMPTS[mode]
@@ -344,6 +378,9 @@ class Assistant:
                     "screenshot or an image they sent, use send_image instead of describing it.")
         from .terminal import project_prompt
         sys += "\n\n" + project_prompt(self.svc.settings.effective(), workdir)
+        if sm and sm["text"]:
+            sys += ("\n\nSummary of the earlier part of this conversation (those messages are no longer shown; "
+                    "treat it as established context):\n" + sm["text"])
         cat = [k for k in self.svc.skills.list(workdir) if k["enabled"]]
         if cat:
             sys += "\n\nSkills you can load with use_skill(name) when relevant:\n" + "\n".join(
@@ -400,21 +437,118 @@ class Assistant:
             slot = None
         if slot:
             limit, source = int(slot["n_ctx"]), "server"
-        msgs = svc.conversations.get(conv_id)["messages"]
+        conv = svc.conversations.get(conv_id)
+        msgs = conv["messages"]
         last = next((i for i in range(len(msgs) - 1, -1, -1) if (msgs[i].get("stats") or {}).get("prompt_tokens")), None)
+        if last is not None and conv["summary"] and msgs[last]["seq"] <= conv["summary"]["at_seq"]:
+            last = None     # the newest server count predates the latest compaction: re-estimate the rebuilt prompt
 
         def est(ms: list[dict]) -> int:
-            return sum(len(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "")) for m in ms) // 4 + 8 * len(ms)
+            return sum(_est_msg(m) for m in ms)
 
         if last is not None:
             st = msgs[last]["stats"]
             used, exact = int(st["prompt_tokens"]) + int(st.get("completion_tokens") or 0), True
             used += est(msgs[last + 1:])
         else:
-            used, exact = sum(est([m]) for m in self._history(conv_id, False, workdir, mode or eff.chat_mode)), False
+            used, exact = est(self._history(conv_id, False, workdir, mode or eff.chat_mode)), False
         budget = max(limit - reserve, 1)
         return {"used": used, "limit": limit, "reserve": reserve, "budget": budget, "pct": round(min(used / budget, 1.5), 4),
-                "exact": exact, "source": source, "history_messages": min(len(msgs), HISTORY_MESSAGES)}
+                "exact": exact, "source": source, "history_messages": min(len(msgs), HISTORY_MESSAGES),
+                "summarised_messages": sum(1 for m in msgs if conv["summary"] and m["seq"] <= conv["summary"]["upto_seq"])}
+
+    @staticmethod
+    def _transcript(msgs: list[dict], names: dict[str, str], cap_chars: int) -> str:
+        """Plain-text rendering of messages for the summariser; long messages are cut, tool output hardest."""
+        lines = []
+        for m in msgs:
+            c = (m.get("content") or "").strip()
+            if m["role"] == "user":
+                lines.append("USER: " + c[:1500] + (" [attachments omitted]" if m.get("images") else ""))
+            elif m["role"] == "assistant":
+                calls = "; ".join(f"{x['name']}({json.dumps(x['arguments'])[:200]})" for x in m.get("tool_calls") or [])
+                lines.append("ASSISTANT: " + c[:1500] + (f" [called {calls}]" if calls else ""))
+            else:
+                lines.append(f"TOOL RESULT ({names.get(m.get('tool_call_id') or '', 'tool')}): " + c[:400])
+        text = "\n".join(lines)
+        return text if len(text) <= cap_chars else "[...older part cut...]\n" + text[-cap_chars:]
+
+    async def compact(self, conv_id: str, think: bool | None = None, effort: str | None = None,
+                      workdir: str | None = None, mode: str | None = None) -> dict:
+        """Shrink the prompt of a long chat without deleting anything (see docs/CONTEXT.md).
+
+        1. Drop old tool output (everything before the newest two user turns): no model call.
+        2. If the prompt is still above COMPACT_TARGET of the budget, fold everything older than the newest
+           ~COMPACT_KEEP of the budget (whole turns only) into the rolling summary with one non-thinking model call.
+        The result is stored, so the prompt prefix stays byte-stable (cache friendly) until the next compaction.
+        """
+        svc = self.svc
+        eff = svc.settings.effective()
+        mode = mode or eff.chat_mode
+        u = await self.context_usage(conv_id, effort, think, workdir, mode)
+        budget = u["budget"]
+        conv = svc.conversations.get(conv_id)
+        sm = conv["summary"] or {"upto_seq": 0, "pruned_upto": 0, "text": "", "at_seq": 0}
+        all_msgs = conv["messages"]
+        msgs = [m for m in all_msgs if m["seq"] > sm["upto_seq"]]
+        at_seq = all_msgs[-1]["seq"] if all_msgs else 0
+        users = [i for i, m in enumerate(msgs) if m["role"] == "user"]
+        upto, pruned, text = sm["upto_seq"], sm["pruned_upto"], sm["text"]
+        if len(users) >= 3:
+            pruned = max(pruned, msgs[users[-2]]["seq"] - 1)
+        svc.conversations.set_summary(conv_id, upto_seq=upto, pruned_upto=pruned, text=text, at_seq=at_seq)
+        result = {"before": u["used"], "pruned": pruned > sm["pruned_upto"], "summarised": 0, "summary_failed": False}
+
+        def estimate() -> int:
+            return sum(_est_msg(m) for m in self._history(conv_id, False, workdir, mode))
+
+        after = estimate()
+        if after > COMPACT_TARGET * budget and users:
+            keep, acc = len(msgs), 0
+            while keep > 0 and len(msgs) - keep < COMPACT_KEEP_MAX_MSGS and acc + _est_msg(msgs[keep - 1]) <= COMPACT_KEEP * budget:
+                keep -= 1
+                acc += _est_msg(msgs[keep])
+            cut = next((i for i in users if i >= keep), users[-1])      # keep whole turns: start at a user message
+            if cut > 0:
+                head = msgs[:cut]
+                names = {c["id"]: c["name"] for m in head for c in (m.get("tool_calls") or []) if c.get("id")}
+                prior = f"Previous summary:\n{text}\n\n" if text else "Previous summary: (none yet)\n\n"
+                body = self._transcript(head, names, cap_chars=max(int((budget - 3000) * 3.5), 4000))
+                try:
+                    res = await svc.llm.chat(
+                        [{"role": "system", "content": SUMMARY_SYSTEM},
+                         {"role": "user", "content": f"{prior}New messages to fold in:\n{body}\n\nWrite the updated summary."}],
+                        think=False, slot=eff.chat_slot, max_tokens=800, temperature=0.2)
+                    new_text = (res.content or "").strip()
+                    if not new_text:
+                        raise LLMError("empty summary")
+                    upto, text = head[-1]["seq"], new_text
+                    svc.conversations.set_summary(conv_id, upto_seq=upto, pruned_upto=pruned, text=text, at_seq=at_seq)
+                    result["summarised"] = len(head)
+                    after = estimate()
+                except Exception as e:  # noqa: BLE001 - keep the pruning, fall back to the message-count cut
+                    log.warning("chat summary failed for %s: %s", conv_id, e)
+                    result["summary_failed"] = True
+        result["after"] = after
+        return result
+
+    async def _auto_compact(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue, st: dict,
+                            threshold: float, workdir: str | None, mode: str) -> None:
+        """Compact when the chat is over `threshold` of its prompt budget; never lets a failure break the turn."""
+        try:
+            u = await self.context_usage(conv_id, effort, think, workdir, mode)
+            if u["pct"] < threshold:
+                return
+            st["compacting"] = True
+            await events.put({"type": "compact_start", "used": u["used"], "budget": u["budget"]})
+            r = await self.compact(conv_id, think, effort, workdir, mode)
+            await events.put({"type": "compacted", **r})
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("auto-compact failed for %s: %s", conv_id, e)
+        finally:
+            st["compacting"] = False
 
     async def converse(self, conv_id: str, content: str, thinking: bool | None = None,
                        effort: str | None = None, images: list[str] | None = None,
@@ -468,8 +602,10 @@ class Assistant:
                      and not x["function"]["name"].startswith("propose_")]
         names = {t["function"]["name"] for t in tools}
         acc = {"content": "", "reasoning": ""}            # everything streamed in the current model call
+        st = {"compacting": False}
         try:
             for _ in range(6):
+                await self._auto_compact(conv_id, think, effort, events, st, GUARD_AT, workdir, mode)   # would it fit?
                 messages = self._history(conv_id, can_send_images, workdir, mode)
                 buf = {"content": "", "reasoning": ""}
                 acc = {"content": "", "reasoning": ""}
@@ -524,10 +660,14 @@ class Assistant:
                                                     action_id=extras.get("action_id"), run_id=extras.get("run_id"))
                     await events.put({"type": "tool_result", "id": c.id, "name": c.name, "ok": ok, "result": text[:4000],
                                       "message_id": tmsg["id"]})
+            await self._auto_compact(conv_id, think, effort, events, st, svc.settings.effective().chat_compact_at,
+                                     workdir, mode)           # while the user reads the reply
             await events.put({"type": "done"})
         except asyncio.CancelledError:
             # The user pressed Stop (or closed the page). Keep whatever was generated so the chat history
-            # is not left with a dangling question.
+            # is not left with a dangling question. (Stopped while summarising: the reply was already complete.)
+            if st["compacting"]:
+                raise
             if acc["content"].strip() or acc["reasoning"].strip():
                 svc.conversations.append(conv_id, "assistant", acc["content"].rstrip() + "\n\n_(stopped)_",
                                          reasoning=acc["reasoning"] or None)

@@ -5,7 +5,7 @@ export interface LiveMsg {
   key: string; reasoning: string; content: string; tools: ToolView[]; actions: PendingAction[];
   runIds: string[]; stats: MessageStats | null; ended: boolean;
 }
-export interface LiveTurn { user: string | null; userImages: string[]; msgs: LiveMsg[]; error: string | null; streaming: boolean; seq: number }
+export interface LiveTurn { user: string | null; userImages: string[]; msgs: LiveMsg[]; error: string | null; streaming: boolean; seq: number; note?: string | null }
 export const emptyTurn: LiveTurn = { user: null, userImages: [], msgs: [], error: null, streaming: false, seq: 0 };
 
 export type TurnAction =
@@ -24,7 +24,7 @@ export function turnReducer(s: LiveTurn, a: TurnAction): LiveTurn {
     case "clear":
       return emptyTurn;
     case "end":
-      return { ...s, streaming: false, error: a.error ?? s.error };
+      return { ...s, streaming: false, note: null, error: a.error ?? s.error };
     case "ev": {
       let seq = s.seq;
       let msgs = s.msgs;
@@ -89,10 +89,14 @@ export function turnReducer(s: LiveTurn, a: TurnAction): LiveTurn {
             stats: ev.message?.stats ?? m.stats,
           }));
           break;
+        case "compact_start":
+          return { ...s, msgs, seq, note: "Summarising earlier messages to free up context…" };
+        case "compacted":
+          return { ...s, msgs, seq, note: null };
         case "error":
           return { ...s, msgs, seq, error: ev.detail ?? "The assistant returned an error." };
         case "done":
-          return { ...s, msgs, seq, streaming: false };
+          return { ...s, msgs, seq, streaming: false, note: null };
       }
       return { ...s, msgs, seq };
     }

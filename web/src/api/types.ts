@@ -7,7 +7,7 @@ export type Effort = "inherit" | "low" | "medium" | "xhigh";
 export interface LlmSlot { id: number; busy: boolean; n_ctx?: number; role?: string }
 export interface Status {
   version?: string;
-  llm?: { healthy?: boolean; vision?: boolean; base_url?: string; model?: string; slots?: LlmSlot[] };
+  llm?: { healthy?: boolean; profile?: string; vision?: boolean; base_url?: string; model?: string; slots?: LlmSlot[] };
   runs?: { running?: string[]; queued?: number; max_concurrent?: number };
   scheduler?: { running?: boolean; jobs?: number };
   pending_actions?: number;
@@ -30,7 +30,7 @@ export interface Agent {
   start_url?: string | null; allowed_domains?: string[] | null; allow_private?: boolean;
   tools?: string[] | null; skills?: string[] | null; memory_scope?: "none" | "global" | "agent";
   thinking?: Thinking; effort?: Effort; max_steps?: number | null; temperature?: number | null;
-  profile?: string | null; workdir?: string | null; is_default?: boolean; created_at?: number; updated_at?: number;
+  profile?: string | null; workdir?: string | null; model?: string | null; is_default?: boolean; created_at?: number; updated_at?: number;
 }
 export type AgentInput = Omit<Agent, "id" | "created_at" | "updated_at" | "is_default">;
 export interface ToolInfo { name: string; description?: string; side_effect?: boolean; enabled?: boolean }
@@ -127,14 +127,16 @@ export interface MessageStats {
   llm_seconds?: number; decode_tps?: number; prefill_tps?: number; think?: boolean;
 }
 export interface Message {
-  id: string; role: "user" | "assistant" | "tool"; content?: string | null; reasoning?: string | null;
+  id: string; seq?: number; role: "user" | "assistant" | "tool"; content?: string | null; reasoning?: string | null;
   tool_calls?: ToolCallInfo[] | null; tool_call_id?: string | null; action_id?: string | null;
   run_id?: string | null; stats?: MessageStats | null; images?: string[]; created_at?: number;
 }
 export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number; project_id?: string | null }
 export interface Project { id: string; name: string; folder: string | null; chat_count?: number; updated_at?: number }
-export interface Conversation { id: string; title?: string | null; project_id?: string | null; messages: Message[] }
-export interface ContextUsage { used: number; limit: number; reserve: number; budget: number; pct: number; exact: boolean; source: "server" | "settings"; history_messages: number }
+export interface Conversation { id: string; title?: string | null; project_id?: string | null; messages: Message[]; summary?: ConversationSummary | null }
+export interface ConversationSummary { upto_seq: number; pruned_upto: number; text: string; updated_at?: number }
+export interface CompactResult { before: number; after: number; pruned: boolean; summarised: number; summary_failed: boolean }
+export interface ContextUsage { summarised_messages: number; used: number; limit: number; reserve: number; budget: number; pct: number; exact: boolean; source: "server" | "settings"; history_messages: number }
 export type ChatMode = "auto" | "manual" | "plan";
 export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[]; workdir?: string; mode?: ChatMode }
 export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string; kind: "image" | "document"; pages?: number; rows?: number; sheets?: number; chars?: number; scanned?: boolean }
@@ -150,6 +152,8 @@ export type ChatEvent =
   | { type: "run_started"; run_id: string }
   | ({ type: "llm_end" } & MessageStats)
   | { type: "message_end"; message: Message }
+  | { type: "compact_start"; used?: number; budget?: number }
+  | ({ type: "compacted" } & Partial<CompactResult>)
   | { type: "done" }
   | { type: "error"; detail?: string };
 
@@ -197,3 +201,10 @@ export interface ConnectorItem {
   state: "ready" | "disabled" | "error" | "pending" | "needs_auth"; error: string | null; tool_names: string[];
 }
 export interface ConnectorsPayload { types: ConnectorType[]; items: ConnectorItem[] }
+
+export interface ModelInfo {
+  id: string; label: string; detail: string; model: string; base_url: string; size_gb: number;
+  installed: boolean; running: boolean; starting: boolean; managed: boolean; active: boolean;
+  download: { bytes: number; total: number; percent: number; active: boolean } | null;
+}
+export interface ModelsPayload { active: string; models: ModelInfo[] }

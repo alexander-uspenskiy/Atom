@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS messages (
   reasoning TEXT, tool_calls TEXT, tool_call_id TEXT, action_id TEXT, run_id TEXT, stats TEXT, created_at REAL
 );
 CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, seq);
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+  conversation_id TEXT PRIMARY KEY, upto_seq INTEGER NOT NULL DEFAULT 0, pruned_upto INTEGER NOT NULL DEFAULT 0,
+  text TEXT NOT NULL DEFAULT '', at_seq INTEGER NOT NULL DEFAULT 0, updated_at REAL
+);
 CREATE TABLE IF NOT EXISTS pending_actions (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, summary TEXT, payload TEXT, status TEXT DEFAULT 'pending',
   created_by TEXT, conversation_id TEXT, run_id TEXT, created_at REAL, decided_at REAL, result TEXT
@@ -119,6 +123,8 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(agents)")}
         if "workdir" not in cols:
             self.conn.execute("ALTER TABLE agents ADD COLUMN workdir TEXT")
+        if "model" not in cols:
+            self.conn.execute("ALTER TABLE agents ADD COLUMN model TEXT")
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(conversations)")}
         if "project_id" not in cols:
             self.conn.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")

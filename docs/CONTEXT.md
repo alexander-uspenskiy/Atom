@@ -16,11 +16,11 @@ slot 2 (`chat_slot`), so that is the hard ceiling for a chat.
 Why not tokenise locally: the model's tokenizer isn't available in Python, while llama-server already reports exact
 counts on every call, so only the small tail is estimated.
 
-Current behaviour with no summarising: `_history` keeps the newest **40 messages** and silently drops the rest, so
+Before compaction existed, `_history` kept the newest **40 messages** and silently drops the rest, so
 long chats lose their beginning (decisions, user preferences, file paths) without warning, and 40 messages with big
 tool outputs can still overflow the slot.
 
-## 2. Proposed summarising strategy (not implemented, needs your go-ahead)
+## 2. Summarising strategy (implemented: `Assistant.compact`, setting `chat_compact_at`, `POST /api/conversations/{id}/compact`)
 
 Goals: never overflow, keep the llama-server prefix cache warm as long as possible, keep what matters.
 
@@ -56,3 +56,12 @@ prompt, so they are not summarised. A manual "Compact now" button on the ring is
 **Rollout.** (1) tier-1 pruning + replace `[-40:]` with a token-budgeted window (small, safe, no model call);
 (2) rolling summary + table + UI divider; (3) setting + manual button. The agent loop already has its own
 `_compact` (action log), unrelated and unchanged.
+
+### As built
+- Trigger: after each reply when `used/budget >= chat_compact_at` (Settings, default 0.75), plus a guard before every
+  model call at 0.95. Clicking the ring compacts on demand. A failed summary never breaks the turn: old tool output is
+  still dropped and the 40-message cap remains the fallback.
+- State lives in `conversation_summaries` (one rolling row per chat): `upto_seq` (messages folded into `text`),
+  `pruned_upto` (tool results elided in the prompt), `at_seq` (so the ring ignores server counts older than the last
+  compaction). The summary goes into the system prompt; the transcript in the UI is untouched and shows a divider.
+- Not done: summary quality has not been tried on the real model, and the ~30-60 s re-prefill cost is still an estimate.
