@@ -51,11 +51,46 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+_HEREDOC = re.compile(r"<<-?[ \t]*(\\?)(?:'([^'\n]+)'|\"([^\"\n]+)\"|([A-Za-z_][\w]*))")
+_SUBST = re.compile(r"\$\((.*?)\)|`(.*?)`", re.S)
+
+
+def _strip_heredocs(command: str) -> str:
+    """Drop heredoc bodies so file content (HTML, code, prose) isn't mistaken for paths.
+
+    Quoted-tag bodies (<<'EOF') are literal text, so they are removed entirely. Unquoted-tag bodies undergo shell
+    expansion, so only their $(...) / `...` spans are kept for scanning.
+    """
+    lines = command.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        for m in _HEREDOC.finditer(line):
+            tag = m.group(2) or m.group(3) or m.group(4)
+            literal = bool(m.group(1) or m.group(2) or m.group(3))
+            body: list[str] = []
+            while i < len(lines) and lines[i].strip() != tag and lines[i].strip("\t") != tag:
+                body.append(lines[i])
+                i += 1
+            if i < len(lines):
+                i += 1                                   # closing tag line
+            if not literal:
+                out.extend(s.group(1) or s.group(2) for s in _SUBST.finditer("\n".join(body)))
+    return "\n".join(out)
+
+
 def _check_command(command: str, base: Path, root: Path) -> None:
     """Best-effort guardrail: refuse commands that point at paths outside the project folder."""
+    command = _strip_heredocs(command)
     for m in _PATHISH.finditer(command):
         tok = m.group(1)
         if tok.startswith(_ALLOWED_PREFIXES) or tok == "/":
+            continue
+        # closing markup tag such as </div> or </a>: '<' + '/name' + '>' is not a redirect from a path
+        if m.start(1) > 0 and command[m.start(1) - 1] == "<" and command[m.end(1):m.end(1) + 1] == ">":
             continue
         if tok.startswith("~"):
             p = Path(tok).expanduser()

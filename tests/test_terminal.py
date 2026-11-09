@@ -51,6 +51,30 @@ def test_restrict_allows_inside_and_system_bins(tmp_path):
     assert ok
 
 
+def test_restrict_ignores_markup_and_quoted_heredocs(tmp_path):
+    s = _s(tmp_path)
+    html = "<div><a href=x>hi</a></div>"
+    text, ok = asyncio.run(run_command(s, f"echo '{html}' > page.html && cat page.html"))
+    assert ok and "</div>" in text
+    text, ok = asyncio.run(run_command(s, "cat > p.html <<'EOF'\n<html>\n<script>x</script>\n/etc/hosts\n</html>\nEOF\ncat p.html"))
+    assert ok and "</script>" in text
+
+
+def test_restrict_still_checks_unquoted_heredoc_substitutions(tmp_path):
+    s = _s(tmp_path)
+    with pytest.raises(TerminalError, match="restriction"):
+        asyncio.run(run_command(s, "cat <<EOF\n$(cat /etc/hosts)\nEOF"))
+    text, ok = asyncio.run(run_command(s, "cat <<EOF\n<b>x</b>\nEOF"))
+    assert ok and "</b>" in text
+
+
+def test_restrict_blocks_redirect_from_outside_path(tmp_path):
+    s = _s(tmp_path)
+    for cmd in ("cat </etc/hosts", "cat < /etc/hosts"):
+        with pytest.raises(TerminalError, match="restriction"):
+            asyncio.run(run_command(s, cmd))
+
+
 def test_restrict_off_allows_outside(tmp_path):
     text, ok = asyncio.run(run_command(_s(tmp_path, terminal_restrict=False), "ls /"))
     assert ok
