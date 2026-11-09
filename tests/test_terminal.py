@@ -60,6 +60,26 @@ def test_restrict_ignores_markup_and_quoted_heredocs(tmp_path):
     assert ok and "</script>" in text
 
 
+def test_restrict_ignores_tag_attributes_in_quotes(tmp_path):
+    s = _s(tmp_path)
+    for cmd in ("""echo '<a href="/x">hi</a>' > p.html && cat p.html""",
+                'echo "<a href=\\"/x\\">hi</a>" > p.html && cat p.html',
+                """echo '<link rel=stylesheet href=/css/a.css><img src="/img/a.png" />' > p.html && cat p.html"""):
+        text, ok = asyncio.run(run_command(s, cmd))
+        assert ok and "<" in text, cmd
+
+
+def test_restrict_tag_exemption_does_not_hide_real_paths(tmp_path):
+    s = _s(tmp_path)
+    for cmd in ("""dd <a if="/etc/passwd">x""",
+                """cat '/etc/hosts'""",
+                """cat "/etc/hosts" """,
+                """echo '<a' "href=/etc/x" '>'""",
+                """echo "<b>$(cat /etc/hosts)</b>" """):
+        with pytest.raises(TerminalError, match="restriction"):
+            asyncio.run(run_command(s, cmd))
+
+
 def test_restrict_still_checks_unquoted_heredoc_substitutions(tmp_path):
     s = _s(tmp_path)
     with pytest.raises(TerminalError, match="restriction"):

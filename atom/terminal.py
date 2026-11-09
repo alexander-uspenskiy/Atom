@@ -82,9 +82,45 @@ def _strip_heredocs(command: str) -> str:
     return "\n".join(out)
 
 
+_MARKUP_TAG = re.compile(
+    r"""</[A-Za-z][\w:.-]*\s*>"""                                                    # closing tag
+    r"""|<[A-Za-z][\w:.-]*(?:\s+[\w:.-]+(?:=(?:\\?"[^"\\]*\\?"|'[^']*'|[^\s"'<>=\\]+))?)*\s*/?>""")  # opening tag
+
+
+def _strip_quoted_markup(command: str) -> str:
+    """Remove well-formed HTML/XML tags (e.g. <a href="/x">, </div>) that sit inside a quoted string.
+
+    Quoted text is literal to the shell (double quotes are skipped when they contain $ or `), so a tag there is
+    just content being written to a file, not a redirect or a path. Tags outside quotes are left alone.
+    """
+    out: list[str] = []
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if c == "\\" and i + 1 < n:
+            out.append(command[i:i + 2])
+            i += 2
+        elif c in "'\"":
+            j = i + 1
+            while j < n and command[j] != c:
+                j += 2 if (c == '"' and command[j] == "\\") else 1
+            if j >= n:                                   # unterminated quote: leave the rest untouched
+                out.append(command[i:])
+                break
+            body = command[i + 1:j]
+            if not (c == '"' and ("$" in body or "`" in body)):
+                body = _MARKUP_TAG.sub("", body)
+            out.append(c + body + c)
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def _check_command(command: str, base: Path, root: Path) -> None:
     """Best-effort guardrail: refuse commands that point at paths outside the project folder."""
-    command = _strip_heredocs(command)
+    command = _strip_quoted_markup(_strip_heredocs(command))
     for m in _PATHISH.finditer(command):
         tok = m.group(1)
         if tok.startswith(_ALLOWED_PREFIXES) or tok == "/":
