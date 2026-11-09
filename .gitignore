@@ -18,3 +18,7 @@ logs/
 # Frontend
 web/node_modules/
 node_modules/
+
+# Videos and macOS files
+videos/
+.DS_Store

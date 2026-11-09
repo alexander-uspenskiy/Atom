@@ -17,7 +17,7 @@ import httpx
 
 from atom.agent import RunResult
 from atom.cli import console_printer
-from atom.config import get_settings
+from atom.config import LLM_PROFILES, get_settings, profile_target
 from atom.services import Services
 from evals.fixtures.server import STAFF, FixtureServer
 
@@ -124,9 +124,14 @@ def build_tasks(base: str) -> list[EvalTask]:
 
 
 async def main_async(a: argparse.Namespace) -> int:
-    svc = Services(get_settings())
+    settings = get_settings()
+    if a.profile:
+        url, alias = profile_target(a.profile)
+        settings = settings.model_copy(update={"llm_profile": a.profile, "llm_base_url": url, "llm_model": alias})
+    svc = Services(settings)
+    print(f"model profile: {settings.llm_profile} ({settings.llm_model} @ {settings.llm_base_url})")
     if not await svc.llm.healthy():
-        print("LLM server not reachable. Start it: ops/llama-server.sh")
+        print(f"LLM server not reachable. Start it: ops/llama-server.sh {settings.llm_profile}")
         return 2
     await svc.startup(scheduler=False)
     agent = svc.agents.default()
@@ -151,7 +156,7 @@ async def main_async(a: argparse.Namespace) -> int:
               f"{'' if ok else why}\n   result: {_text(res)[:200]}")
     srv.stop()
     await svc.shutdown()
-    out = Path("evals/results") / f"phase1_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    out = Path("evals/results") / f"phase1_{settings.llm_profile}_{time.strftime('%Y%m%d-%H%M%S')}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(rows, indent=2))
     print("\n=== SUMMARY ===")
@@ -168,6 +173,7 @@ def main() -> None:
     p.add_argument("--suite", default="all", choices=["fixtures", "live", "all"])
     p.add_argument("--only", nargs="*")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--profile", choices=list(LLM_PROFILES), help="model profile to evaluate (default: configured one)")
     p.add_argument("--repeat", type=int, default=1, help="run each task N times")
     raise SystemExit(asyncio.run(main_async(p.parse_args())))
 

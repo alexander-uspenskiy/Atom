@@ -1,6 +1,6 @@
 # Atom
 
-A local web-agent platform: a real browser (Playwright) driven by a local Qwen3.8-27B (4-bit GGUF on llama.cpp),
+A local web-agent platform: a real browser (Playwright) driven by a local Qwen3.8-27B or Arete-27B (4-bit GGUF on llama.cpp),
 with scheduled tasks, a chat assistant, memory, skills and a live dashboard. Built for an M1 Max 64 GB.
 
 ## Run
@@ -10,16 +10,30 @@ ops/start.sh                      # model server (:8080) + dashboard backend (:8
 open http://127.0.0.1:8787        # the dashboard
 ```
 
-Pieces separately: `ops/llama-server.sh` (3 slots: agent / extraction+thinking / chat) and `uv run python -m atom serve`.
+Pieces separately: `ops/llama-server.sh [qwen|arete]` (3 slots: agent / extraction+thinking / chat) and `uv run python -m atom serve`.
 
 ## Use
 
 - **Dashboard** (`web/`, React): Overview, Chat, Agents, Schedules, Runs (live view), Memory, Skills, Stats, Settings, Approvals.
 - **CLI**: `uv run python -m atom run "task" --url https://example.com [--agent NAME] [--thinking off|auto|on]`,
   `atom runs`, `atom show <run_id>`, `atom llm-check`.
-- **Evals**: `uv run python -m evals.run_evals --suite all [--repeat N]` (5 local fixture tasks + 2 live).
+- **Evals**: `uv run python -m evals.run_evals --suite all [--repeat N] [--profile qwen|arete]` (5 local fixture tasks + 2 live); results go to `evals/results/phase1_<profile>_<time>.json`.
 - **Tests**: `uv run pytest` (no model needed; uses a scripted fake LLM and a local fixture site).
 - **Frontend dev**: `cd web && pnpm install && pnpm dev` (proxies /api to :8787); `pnpm build` writes `web/dist`.
+
+## Models
+
+Two model profiles (`atom/config.py: LLM_PROFILES`), each its own llama-server on its own port, so both can be loaded at
+once: **qwen** (Qwen3.8-27B, UD-Q4_K_M, :8080, default) and **arete** (NousResearch Arete-27B, Q4_K_M, :8081). Click the
+model name in the dashboard sidebar to list, switch the default, start, stop or download a profile (`/api/models`).
+Atom can stop only servers it started itself. An agent can pick its own model (Agents → Model; empty = default), and its
+runs route LLM calls to that server. Start one by hand with `ops/llama-server.sh arete`.
+
+## Chat context
+
+The chat shows a context ring (used / budget of the 32k chat slot). At the "Summarise chats at" share (Settings, default
+75 %) older messages are folded into a rolling summary and old tool output is pruned; click the ring to compact now.
+The transcript stays intact. Details: `docs/CONTEXT.md`.
 
 ## Environment & secret variables
 

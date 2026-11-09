@@ -40,10 +40,18 @@ The UI MUST render the settings form generically from `schema` (grouped by `grou
 Keys: `llm_base_url`, `llm_model`, `temperature`, `top_p`, `top_k`, `presence_penalty`,
 `agent_thinking` (off|auto|on), `agent_effort` (low|medium|xhigh), `chat_thinking` (boolean),
 `chat_effort`, `max_steps`, `max_wall_s`, `compact_at_tokens`, `max_observation_tokens`, `max_read_tokens`,
-`headless`, `live_screenshots`, `agent_vision`, `max_concurrent_runs`, `auto_approve_assistant_actions`, `memory_inject_k`,
+`chat_compact_at`, `llm_profile`, `headless`, `live_screenshots`, `agent_vision`, `max_concurrent_runs`, `auto_approve_assistant_actions`, `memory_inject_k`,
 `timezone`.
 
 ### PUT /api/settings   body `{"values": {"temperature": 0.7}}` → same shape as GET. Unknown keys → 422.
+
+## Models
+
+Model profiles, each a separate llama-server (`ops/llama-server.sh <profile>`).
+
+- `GET /api/models` → `{"active": "qwen", "models": [ModelInfo]}` (id, label, detail, model, base_url, size_gb, installed, running, managed, download progress).
+- `POST /api/models/{profile}/activate` body `{"start": true}` → make it the default; starts its server if downloaded and not running.
+- `POST /api/models/{profile}/{start|stop|download}` → same payload. Unknown profile/action → 404; not downloaded → 409; stop of a server Atom did not start → 409.
 
 ## Agents (saved configurations of the web agent)
 
@@ -51,12 +59,12 @@ Keys: `llm_base_url`, `llm_model`, `temperature`, `top_p`, `top_k`, `presence_pe
 ```json
 { "id": "a1", "name": "News watcher", "description": "...", "instructions": "extra system prompt text",
   "start_url": null, "allowed_domains": ["ycombinator.com"], "allow_private": false,
-  "tools": null, "skills": ["summarize-news"], "memory_scope": "agent",
+  "tools": null, "skills": ["summarize-news"], "memory_scope": "agent", "model": null,
   "thinking": "inherit", "effort": "inherit", "max_steps": null, "temperature": null, "profile": null,
   "is_default": false, "created_at": 0, "updated_at": 0 }
 ```
 `tools`: null = all tools, else array of tool names. `memory_scope`: `none | global | agent`.
-`thinking`: `inherit | off | auto | on`; `effort`: `inherit | low | medium | xhigh`.
+`model`: null (use the default) or a model profile id (`qwen | arete`); `thinking`: `inherit | off | auto | on`; `effort`: `inherit | low | medium | xhigh`.
 
 - `GET /api/agents` → `Agent[]`;  `POST /api/agents` (Agent without id/timestamps) → `Agent`
 - `GET|PUT|DELETE /api/agents/{id}` (default agent cannot be deleted → 409)
@@ -182,6 +190,12 @@ Every event: `{"seq": 17, "ts": 0, "run_id": "...", "type": "...", ...}`.
   - `message_end` `{message: Message}`  (a turn may contain several llm calls / messages when tools are used)
   - `done` `{}`  /  `error` `{detail}`
   Closing the connection (AbortController) cancels generation.
+
+### GET /api/conversations/{id}/context?effort=&thinking=
+Context ring data: `limit`, `reserve`, `budget`, `used` and the share used (see `docs/CONTEXT.md`).
+
+### POST /api/conversations/{id}/compact   body `{"thinking": bool?, "effort": str?}`
+Compact now: prune old tool output and fold older messages into the rolling summary. The transcript is not changed.
 
 ## Stats
 
