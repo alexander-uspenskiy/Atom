@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atom: the AI agent that browses for you, on your Mac</title>
+<meta name="description" content="Atom drives a real browser with a local 27B model. Scheduled agents, Telegram, Gmail, MCP. No cloud, no API bill.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h7l4-11 6 20 4-9h7' fill='none' stroke='%23818cf8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#07080d;--panel:#10121b;--line:#222638;--text:#e8eaf3;--mut:#8b90a8;--a:#818cf8;--b:#22d3ee;--c:#a78bfa}
+*{box-sizing:border-box;margin:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.glow{position:absolute;inset:0 0 auto 0;height:700px;background:radial-gradient(600px 300px at 20% 10%,#4f46e555,transparent),radial-gradient(500px 300px at 80% 0%,#06b6d444,transparent);pointer-events:none;z-index:-1}
+nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0}
+.logo{display:flex;gap:10px;align-items:center;font-weight:700;font-size:20px}
+.logo svg{width:28px;height:28px}
+nav .links{display:flex;gap:24px;align-items:center;color:var(--mut);font-size:15px}
+nav .links a:hover{color:var(--text)}
+.btn{display:inline-flex;gap:8px;align-items:center;padding:12px 22px;border-radius:12px;font-weight:600;border:1px solid var(--line);background:var(--panel);transition:.2s}
+.btn:hover{border-color:var(--a);transform:translateY(-1px)}
+.btn.pri{background:linear-gradient(135deg,var(--a),var(--c));border:0;color:#fff;box-shadow:0 8px 30px #6366f166}
+.hero{text-align:center;padding:72px 0 40px}
+.pill{display:inline-block;padding:6px 14px;border:1px solid var(--line);border-radius:99px;color:var(--mut);font-size:13px;background:#ffffff08}
+h1{font-size:clamp(40px,7vw,76px);line-height:1.05;letter-spacing:-.03em;margin:22px auto 20px;max-width:900px}
+.grad{background:linear-gradient(90deg,var(--b),var(--a),var(--c));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--mut);font-size:19px;max-width:660px;margin:0 auto 32px}
+.cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.shot{margin:56px auto 0;border-radius:16px;border:1px solid var(--line);overflow:hidden;box-shadow:0 40px 120px #4f46e540,0 0 0 8px #ffffff06}
+.shot img{display:block;width:100%;height:auto}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:72px 0}
+.stat{padding:22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);text-align:center}
+.stat b{display:block;font-size:30px}
+.stat span{color:var(--mut);font-size:14px}
+h2{font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;text-align:center;margin-bottom:12px}
+.sub{color:var(--mut);text-align:center;margin-bottom:44px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+.card{padding:26px;border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,#141726,var(--panel));transition:.25s}
+.card:hover{border-color:var(--a);transform:translateY(-3px);box-shadow:0 12px 40px #6366f122}
+.card i{font-style:normal;font-size:26px;display:block;margin-bottom:12px}
+.card h3{font-size:18px;margin-bottom:6px}
+.card p{color:var(--mut);font-size:15px}
+section{padding:70px 0}
+.gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.gallery figure{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--panel)}
+.gallery img{width:100%;display:block}
+.gallery figcaption{padding:12px 16px;color:var(--mut);font-size:14px}
+pre{background:#0b0d15;border:1px solid var(--line);border-radius:14px;padding:22px;overflow:auto;font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;max-width:720px;margin:0 auto}
+pre .c{color:#5b6180}
+.final{text-align:center;padding:90px 24px;border:1px solid var(--line);border-radius:24px;background:radial-gradient(500px 200px at 50% 0,#6366f133,transparent),var(--panel)}
+footer{color:var(--mut);text-align:center;padding:40px 0;font-size:14px}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}.gallery{grid-template-columns:1fr}nav .links a.hide{display:none}}
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="#"><svg viewBox="0 0 32 32"><path d="M2 17h7l4-11 6 20 4-9h7" fill="none" stroke="#818cf8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>Atom</a>
+    <div class="links"><a class="hide" href="#features">Features</a><a class="hide" href="#screens">Screenshots</a><a class="hide" href="#start">Get started</a>
+      <a class="btn" href="https://github.com/alexander-uspenskiy/Atom">★ GitHub</a></div>
+  </nav>
+
+  <header class="hero">
+    <span class="pill">100% local · open source · Apple Silicon</span>
+    <h1>The AI agent that <span class="grad">uses the web for you</span></h1>
+    <p>Atom drives a real browser with a 27B model running on your own Mac. Schedule it, chat with it, text it from Telegram. No cloud, no API bill, no data leaving your machine.</p>
+    <div class="cta">
+      <a class="btn pri" href="#start">Get started</a>
+      <a class="btn" href="https://github.com/alexander-uspenskiy/Atom">View on GitHub →</a>
+    </div>
+    <div class="shot"><img src="images/overview.png" alt="Atom dashboard overview"></div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><b>0 $</b><span>per token</span></div>
+    <div class="stat"><b>27B</b><span>local model, 4-bit</span></div>
+    <div class="stat"><b>2</b><span>switchable models</span></div>
+    <div class="stat"><b>24/7</b><span>scheduled agents</span></div>
+  </div>
+
+  <section id="features">
+    <h2>Everything an agent needs. Nothing it shouldn't have.</h2>
+    <p class="sub">A complete platform, not a demo.</p>
+    <div class="grid">
+      <div class="card"><i>🌐</i><h3>A real browser agent</h3><p>Clicks, types, reads and navigates real sites. Watch live screenshots and a step-by-step timeline, or stop it any time.</p></div>
+      <div class="card"><i>🔒</i><h3>Fully local and private</h3><p>Qwen3.8-27B or NousResearch Arete-27B on llama.cpp. Your data and passwords stay on your machine.</p></div>
+      <div class="card"><i>🔀</i><h3>Switch models in one click</h3><p>Download, start, stop and choose the default model from the dashboard, or give each agent its own.</p></div>
+      <div class="card"><i>⏰</i><h3>Scheduled agents</h3><p>Cron-style schedules run while you sleep, with full run history, traces and screenshots.</p></div>
+      <div class="card"><i>💬</i><h3>Chat assistant</h3><p>Ask in plain language. It proposes schedules, agents and memories; you approve. Attach images and documents (PDF, Word, Excel, CSV).</p></div>
+      <div class="card"><i>🧠</i><h3>Chats that don't forget</h3><p>A context ring shows usage; older messages are summarised automatically so long chats keep their thread.</p></div>
+      <div class="card"><i>✈️</i><h3>Telegram</h3><p>Chat with Atom from your phone, send photos and files, approve actions with buttons, get results and screenshots back.</p></div>
+      <div class="card"><i>✉️</i><h3>Gmail</h3><p>Search, read and optionally send email. Google sign-in via OAuth, no password stored, several accounts.</p></div>
+      <div class="card"><i>🔌</i><h3>Connectors and MCP</h3><p>Add your own integration with a small Python class, or plug in any MCP tool server (stdio or remote).</p></div>
+      <div class="card"><i>📚</i><h3>Skills and memory</h3><p>Reusable procedures and persistent memories, scoped globally or per agent.</p></div>
+      <div class="card"><i>⌨️</i><h3>Terminal tools</h3><p>Agents and chat can run commands in a working folder you choose, organised into projects.</p></div>
+      <div class="card"><i>🛡️</i><h3>Safe by default</h3><p>Domain allowlists, private-network blocking, keychain secrets the model never sees, and human approval for anything persistent.</p></div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <h2>Mission control for your agents</h2>
+    <p class="sub">A live dashboard with dark and light themes.</p>
+    <div class="gallery">
+      <figure><img src="images/agents.png" alt="Agents" loading="lazy"><figcaption>Agents: tools, domains, memory scope and model per agent</figcaption></figure>
+      <figure><img src="images/runs.png" alt="Runs" loading="lazy"><figcaption>Runs: every step, observation and screenshot</figcaption></figure>
+      <figure><img src="images/stats.png" alt="Stats" loading="lazy"><figcaption>Stats: success rate, tokens and duration</figcaption></figure>
+      <figure><img src="images/skills.png" alt="Skills" loading="lazy"><figcaption>Skills: reusable procedures your agents follow</figcaption></figure>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2>Up and running in a minute</h2>
+    <p class="sub">Built for an M1 Max with 64 GB, works on any Apple Silicon Mac with enough memory.</p>
+<pre><span class="c"># clone and start the model server and dashboard</span>
+git clone https://github.com/alexander-uspenskiy/Atom.git
+cd Atom
+ops/start.sh
+
+<span class="c"># open the dashboard</span>
+open http://127.0.0.1:8787</pre>
+  </section>
+
+  <section>
+    <div class="final">
+      <h2>Give your Mac a job.</h2>
+      <p class="sub">Free, open source, and yours.</p>
+      <a class="btn pri" href="https://github.com/alexander-uspenskiy/Atom">Star Atom on GitHub</a>
+    </div>
+  </section>
+  <footer>Atom · <a href="https://github.com/alexander-uspenskiy/Atom">github.com/alexander-uspenskiy/Atom</a></footer>
+</div>
+</body>
+</html>

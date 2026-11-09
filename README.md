@@ -1,4 +1,12 @@
-# Atom
+<h1 align="center">Atom</h1>
+
+<p align="center">
+  <a href="https://alexander-uspenskiy.github.io/Atom/"><b>Website</b></a> ·
+  <a href="#run">Get started</a> ·
+  <a href="docs/DASHBOARD_API.md">API</a>
+</p>
+
+<p align="center"><img src="docs/images/overview.png" alt="Atom dashboard" width="900"></p>
 
 **Your own AI agent that uses the web like you do, running entirely on your Mac.** Atom drives a real browser (Playwright) with a local 27B model on llama.cpp. No cloud API, no per-token bill, and your data and passwords stay on your machine. Built for an M1 Max 64 GB.
 
@@ -20,6 +28,14 @@
 - **Safe by default**: domain allowlists, private-network blocking, untrusted-content handling and human approval for anything persistent.
 - **Live dashboard**: Overview, Chat, Agents, Schedules, Runs, Memory, Skills, Stats, Settings and Approvals, with light and dark themes.
 - **Tested and measured**: a test suite that needs no model, plus an eval harness to compare models.
+
+## Screenshots
+
+| Agents | Runs |
+|---|---|
+| <img src="docs/images/agents.png" width="450"> | <img src="docs/images/runs.png" width="450"> |
+| **Stats** | **Skills** |
+| <img src="docs/images/stats.png" width="450"> | <img src="docs/images/skills.png" width="450"> |
 
 ## Run
 
