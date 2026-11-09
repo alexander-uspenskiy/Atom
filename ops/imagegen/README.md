@@ -19,4 +19,8 @@ agents get a `generate_image` tool and are shown each result so they can check i
 **Where images go:** by default `data/images/`. When a chat project or an agent has a working folder, the PNG is moved
 into `<folder>/generated-images/<timestamp>-<id>-<prompt-slug>.png` instead (the small preview stays in `data/images/`).
 
+**Measured on an M1 Max 64GB** (Z-Image-Turbo 4-bit, 9 steps): 1024×1024 takes about 96 s warm and 113 s cold (model
+load included); the service holds about 5.8 GB while loaded. Smaller sizes are much faster. Looking at a result costs the
+vision model roughly 10-40 s (image encoding), so a generate-check-retry loop is a few minutes per round.
+
 Env: `IMAGEGEN_MODEL`, `IMAGEGEN_OUT`, `IMAGEGEN_IDLE_S`, `IMAGEGEN_HOST`, `IMAGEGEN_PORT`.
