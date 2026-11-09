@@ -22,3 +22,6 @@ node_modules/
 # Videos and macOS files
 videos/
 .DS_Store
+
+# Eval run output (machine-specific; regenerate with python -m evals.run_evals)
+evals/results/

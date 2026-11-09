@@ -1,7 +1,25 @@
 # Atom
 
-A local web-agent platform: a real browser (Playwright) driven by a local Qwen3.8-27B or Arete-27B (4-bit GGUF on llama.cpp),
-with scheduled tasks, a chat assistant, memory, skills and a live dashboard. Built for an M1 Max 64 GB.
+**Your own AI agent that uses the web like you do, running entirely on your Mac.** Atom drives a real browser (Playwright) with a local 27B model on llama.cpp. No cloud API, no per-token bill, and your data and passwords stay on your machine. Built for an M1 Max 64 GB.
+
+## What you get
+
+- **A real browser agent**: it clicks, types, reads and navigates real sites, with live screenshots and a step-by-step timeline you can watch or stop.
+- **Fully local and private**: Qwen3.8-27B or NousResearch Arete-27B (4-bit GGUF). Nothing leaves your machine unless you connect it.
+- **Switch models in one click**: list, download, start, stop and choose the default model from the dashboard, or give each agent its own model.
+- **Scheduled agents**: cron-style schedules run tasks while you sleep, with run history, traces and screenshots.
+- **Chat assistant**: ask in plain language; it proposes schedules, agents, skills and memories, and you approve them. Attach images (OCR / vision) and documents (PDF, Word, Excel, CSV, Markdown, text).
+- **Long chats that don't forget**: a context ring shows usage and older messages are summarised automatically (or on click).
+- **Telegram**: chat with Atom from your phone, send photos and files, approve actions with buttons, get run results and screenshots back, forward results to people you whitelist.
+- **Gmail**: search, read and (optionally) send email, with Google sign-in (OAuth, no password stored) and several accounts.
+- **Extensible connectors**: add your own integration by subclassing `Connector`; the settings form is generated for you.
+- **MCP servers**: plug in any MCP tool server (stdio or remote); its tools appear to your agents.
+- **Skills and memory**: reusable procedures (user-level, project-level or built in) and persistent memories, scoped globally or per agent.
+- **Terminal tools and projects**: agents and chat can run commands in a chosen working folder.
+- **Secrets done right**: `{{NAME}}` variables and keychain-stored secrets that the model never sees and that are scrubbed from logs.
+- **Safe by default**: domain allowlists, private-network blocking, untrusted-content handling and human approval for anything persistent.
+- **Live dashboard**: Overview, Chat, Agents, Schedules, Runs, Memory, Skills, Stats, Settings and Approvals, with light and dark themes.
+- **Tested and measured**: a test suite that needs no model, plus an eval harness to compare models.
 
 ## Run
 
