@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from .browser.session import ActionError, BrowserSession, Policy
 from .config import Settings
+from .files import FILE_TOOLS, PROMPT as FILE_PROMPT
 from .events import EventBus
 from .llm import LLM, LLMError
 from .stores import MemoryStore, RunStore
@@ -138,6 +139,10 @@ class Agent:
         # ("All tools" does not include it).
         if cfg.tool_names is None or "terminal" not in cfg.tool_names or not self.s.terminal_enabled:
             tools.pop("terminal", None)
+        # File tools follow the same rule: global switch on, and listed explicitly by the agent
+        for n in FILE_TOOLS:
+            if cfg.tool_names is None or n not in cfg.tool_names or not self.s.terminal_enabled:
+                tools.pop(n, None)
         if not cfg.skill_names:
             tools.pop("use_skill", None)
         if cfg.memory_scope == "none":
@@ -153,9 +158,11 @@ class Agent:
             sp += IMAGE_PROMPT
         if vs:
             sp += "\n\n" + vs.prompt_section()
-        if tools is not None and "terminal" in tools:
+        if tools is not None and ("terminal" in tools or "write_file" in tools):
             from .terminal import project_prompt
             sp += "\n\n" + project_prompt(self.s, cfg.workdir)
+        if tools is not None and "write_file" in tools:
+            sp += "\n\n" + FILE_PROMPT
         if cfg.agent.get("instructions"):
             sp += f"\n\nAdditional instructions for this agent:\n{cfg.agent['instructions'].strip()}"
         if cfg.skill_names and self.skills is not None:

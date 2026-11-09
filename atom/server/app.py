@@ -259,7 +259,9 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         svc = svc_of(request)
         tools = {**build_tools(), **svc.mcp.tools, **svc.connectors.tools}
         eff = svc.settings.effective()
-        gate = {"terminal": eff.terminal_enabled, "generate_image": eff.imagegen_enabled}
+        from ..files import FILE_TOOLS
+        gate = {"terminal": eff.terminal_enabled, "generate_image": eff.imagegen_enabled,
+                **{n: eff.terminal_enabled for n in FILE_TOOLS}}
         return [{"name": t.name, "description": t.description, "side_effect": t.side_effect,
                  "enabled": gate.get(t.name, True)}
                 for t in tools.values()]
@@ -268,10 +270,11 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def chat_tools(request: Request):
         """Tools the chat assistant can call in the current session."""
         svc = svc_of(request)
+        from ..files import FILE_TOOLS, WRITE_TOOLS
         term = svc.settings.effective().terminal_enabled
         return [{"name": t["function"]["name"], "description": t["function"]["description"],
-                 "side_effect": t["function"]["name"].startswith("propose_") or t["function"]["name"] in ("run_agent", "run_command"),
-                 "enabled": term or t["function"]["name"] != "run_command"}
+                 "side_effect": t["function"]["name"].startswith("propose_") or t["function"]["name"] in ("run_agent", "run_command") or t["function"]["name"] in WRITE_TOOLS,
+                 "enabled": term or not (t["function"]["name"] == "run_command" or t["function"]["name"] in FILE_TOOLS)}
                 for t in svc.assistant.tool_specs(include_disabled=True)]
 
     def _mcp_payload(svc) -> dict:
