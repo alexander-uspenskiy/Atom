@@ -134,6 +134,7 @@ export interface Message {
 export interface ConversationInfo { id: string; title?: string | null; updated_at?: number; message_count?: number; project_id?: string | null }
 export interface Project { id: string; name: string; folder: string | null; chat_count?: number; updated_at?: number }
 export interface Conversation { id: string; title?: string | null; project_id?: string | null; messages: Message[] }
+export interface ContextUsage { used: number; limit: number; reserve: number; budget: number; pct: number; exact: boolean; source: "server" | "settings"; history_messages: number }
 export type ChatMode = "auto" | "manual" | "plan";
 export interface ChatBody { content: string; thinking: boolean; effort: "low" | "medium" | "xhigh"; images?: string[]; workdir?: string; mode?: ChatMode }
 export interface UploadInfo { id: string; mime: string; size: number; name: string; url: string; kind: "image" | "document"; pages?: number; rows?: number; sheets?: number; chars?: number; scanned?: boolean }

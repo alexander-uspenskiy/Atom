@@ -8,6 +8,7 @@ import { Dialog } from "../ui/Dialog";
 import { FolderPicker } from "../ui/FolderPicker";
 import { Button } from "../ui/Button";
 import { Segmented } from "../ui/Fields";
+import { ContextRing } from "./ContextRing";
 import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi } from "./Attachments";
 import { Switch } from "../ui/Switch";
 
@@ -15,11 +16,11 @@ export type ChatEffort = "low" | "medium" | "xhigh";
 export interface ChatPrefs { thinking: boolean; effort: ChatEffort; workdir?: string; mode?: ChatMode }
 
 export function Composer({
-  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project,
+  value, onChange, onSend, onStop, streaming, prefs, onPrefs, disabled, autoFocusKey, attachments, project, convId,
 }: {
   value: string; onChange: (v: string) => void; onSend: () => void; onStop: () => void; streaming: boolean;
   prefs: ChatPrefs; onPrefs: (p: ChatPrefs) => void; disabled?: boolean; autoFocusKey?: string | null;
-  attachments: AttachmentsApi; project?: Project | null;
+  attachments: AttachmentsApi; project?: Project | null; convId?: string | null;
 }) {
   const hasContent = !!value.trim() || attachments.ids.length > 0;
   const canSend = hasContent && !attachments.busy && !disabled;
@@ -131,7 +132,8 @@ export function Composer({
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             Skills ({skillCount ?? "…"})
           </button>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            {convId && <ContextRing convId={convId} thinking={prefs.thinking} effort={prefs.effort} />}
             {streaming ? (
               <Button size="sm" variant="danger" icon={<Square className="h-3.5 w-3.5" />} onClick={onStop}>Stop</Button>
             ) : (

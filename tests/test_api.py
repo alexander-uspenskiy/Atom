@@ -589,3 +589,15 @@ def test_mode_validation_and_noninteractive_manual(client):
     conv = client.post("/api/conversations", json={}).json()
     r = client.post(f"/api/conversations/{conv['id']}/messages", json={"content": "hi", "mode": "yolo"})
     assert r.status_code == 422 or r.status_code == 400
+
+
+def test_conversation_context_usage(client, fake):
+    conv = client.post("/api/conversations", json={}).json()
+    empty = client.get(f"/api/conversations/{conv['id']}/context").json()
+    assert empty["exact"] is False and empty["limit"] == 32768 and empty["source"] == "server"
+    assert empty["budget"] == 32768 - empty["reserve"]
+    fake.push({"content": "hi", "prompt": 4000, "cached": 0, "out": 100})
+    read_sse(client, "POST", f"/api/conversations/{conv['id']}/messages", {"content": "hello"})
+    u = client.get(f"/api/conversations/{conv['id']}/context").json()
+    assert u["exact"] is True and u["used"] == 4100 and 0 < u["pct"] < 1
+    assert client.get("/api/conversations/nope/context").status_code == 404

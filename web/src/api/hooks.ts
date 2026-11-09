@@ -45,6 +45,9 @@ export const useMemories = (f: MemoryFilters) => useQuery({ queryKey: qk.memorie
 export const useActions = (status?: string) =>
   useQuery({ queryKey: qk.actions(status), queryFn: () => api.actions(status) });
 export const useProjects = () => useQuery({ queryKey: qk.projects, queryFn: api.projects });
+/** Context-window usage of a chat. Lives under the conversation key, so any conversation invalidation refreshes it. */
+export const useContextUsage = (id: string | null, o: { effort?: string; thinking?: boolean } = {}) =>
+  useQuery({ queryKey: [...qk.conversation(id ?? ""), "context", o.effort ?? null, o.thinking ?? null], queryFn: () => api.conversationContext(id as string, o), enabled: !!id, staleTime: 5000 });
 export const useConversations = () => useQuery({ queryKey: qk.conversations, queryFn: api.conversations });
 export const useStats = (days: number) => useQuery({ queryKey: qk.stats(days), queryFn: () => api.stats(days) });
 

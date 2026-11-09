@@ -1,5 +1,5 @@
 import type {
-  Agent, AgentInput, ChatBody, ChatEvent, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
+  Agent, AgentInput, ChatBody, ChatEvent, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
   UploadInfo, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
@@ -140,6 +140,8 @@ export const api = {
   updateProject: (id: string, b: { name: string; folder: string }) => req<Project>("PUT", `/projects/${encodeURIComponent(id)}`, b),
   deleteProject: (id: string) => req<void>("DELETE", `/projects/${encodeURIComponent(id)}`),
   conversation: (id: string) => req<Conversation>("GET", `/conversations/${encodeURIComponent(id)}`),
+  conversationContext: (id: string, o: { effort?: string; thinking?: boolean } = {}) =>
+    req<ContextUsage>("GET", `/conversations/${encodeURIComponent(id)}/context${qs({ effort: o.effort, thinking: o.thinking })}`),
   renameConversation: (id: string, title: string) =>
     req<ConversationInfo>("PUT", `/conversations/${encodeURIComponent(id)}`, { title }),
   deleteConversation: (id: string) => req<void>("DELETE", `/conversations/${encodeURIComponent(id)}`),

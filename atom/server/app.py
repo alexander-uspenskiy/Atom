@@ -574,6 +574,12 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     async def get_conversation(request: Request, cid: str):
         return svc_of(request).conversations.get(cid)
 
+    @app.get("/api/conversations/{cid}/context")
+    async def conversation_context(request: Request, cid: str, effort: str | None = None, thinking: bool | None = None):
+        svc = svc_of(request)
+        proj = svc.conversations.project_of(cid)
+        return await svc.assistant.context_usage(cid, effort, thinking, workdir=(proj or {}).get("folder"))
+
     @app.put("/api/conversations/{cid}")
     async def rename_conversation(request: Request, cid: str, body: dict = Body(...)):
         svc = svc_of(request)

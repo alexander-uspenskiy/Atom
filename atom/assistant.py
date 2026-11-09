@@ -117,6 +117,7 @@ MODE_PROMPTS = {
              "risks) and tell the user to switch to Auto or Manual mode to carry it out."),
 }
 MAX_HISTORY_IMAGE_MESSAGES = 2
+HISTORY_MESSAGES = 40             # the chat prompt only ever carries the newest N messages
 TOOL_NAMES = {t["function"]["name"] for t in TOOLS}
 
 
@@ -332,7 +333,7 @@ class Assistant:
     # ------------------------------------------------------------------ conversation
     def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None,
                  mode: str = "auto") -> list[dict]:
-        msgs = self.svc.conversations.get(conv_id)["messages"][-40:]
+        msgs = self.svc.conversations.get(conv_id)["messages"][-HISTORY_MESSAGES:]
         while msgs and msgs[0]["role"] == "tool":
             msgs = msgs[1:]
         sys = SYSTEM + f"\n\nUser's timezone: {self.svc.settings.effective().timezone}."
@@ -374,6 +375,46 @@ class Assistant:
                 else:
                     out.append({"role": "user", "content": m["content"]})
         return out
+
+    async def context_usage(self, conv_id: str, effort: str | None = None, think: bool | None = None,
+                            workdir: str | None = None, mode: str | None = None) -> dict:
+        """How full the chat slot's context window is for this conversation (drives the dashboard's context ring).
+
+        limit  = n_ctx of the chat slot as reported by llama-server (/slots), else the ctx_per_slot setting.
+        reserve = the completion budget a turn can ask for (max_tokens), which must also fit in the slot.
+        used   = exact server count from the newest model call (prompt + completion tokens) plus a chars/4
+                 estimate for whatever was appended after it (tool results, the next user message). With no
+                 model call yet, the whole rebuilt prompt is estimated.
+        """
+        svc = self.svc
+        if not svc.conversations.exists(conv_id):
+            raise NotFound(f"conversation {conv_id} not found")
+        eff = svc.settings.effective()
+        think = eff.chat_thinking if think is None else think
+        effort = effort or eff.chat_effort
+        reserve = {"low": 3000, "medium": 5000, "xhigh": 8000}.get(effort, 3000) if think else 1500
+        limit, source = eff.ctx_per_slot, "settings"
+        try:
+            slot = next((x for x in await svc.llm.slots() if x["id"] == eff.chat_slot and x.get("n_ctx")), None)
+        except Exception:  # noqa: BLE001
+            slot = None
+        if slot:
+            limit, source = int(slot["n_ctx"]), "server"
+        msgs = svc.conversations.get(conv_id)["messages"]
+        last = next((i for i in range(len(msgs) - 1, -1, -1) if (msgs[i].get("stats") or {}).get("prompt_tokens")), None)
+
+        def est(ms: list[dict]) -> int:
+            return sum(len(m.get("content") or "") + len(json.dumps(m.get("tool_calls") or "")) for m in ms) // 4 + 8 * len(ms)
+
+        if last is not None:
+            st = msgs[last]["stats"]
+            used, exact = int(st["prompt_tokens"]) + int(st.get("completion_tokens") or 0), True
+            used += est(msgs[last + 1:])
+        else:
+            used, exact = sum(est([m]) for m in self._history(conv_id, False, workdir, mode or eff.chat_mode)), False
+        budget = max(limit - reserve, 1)
+        return {"used": used, "limit": limit, "reserve": reserve, "budget": budget, "pct": round(min(used / budget, 1.5), 4),
+                "exact": exact, "source": source, "history_messages": min(len(msgs), HISTORY_MESSAGES)}
 
     async def converse(self, conv_id: str, content: str, thinking: bool | None = None,
                        effort: str | None = None, images: list[str] | None = None,

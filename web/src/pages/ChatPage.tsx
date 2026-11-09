@@ -391,6 +391,7 @@ export default function ChatPage() {
             autoFocusKey={convId}
             attachments={attachments}
             project={activeProject}
+            convId={convId}
           />
         </section>
       </div>
