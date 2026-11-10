@@ -7,7 +7,7 @@ import { ToolList } from "../ToolList";
 import { Dialog } from "../ui/Dialog";
 import { FolderPicker } from "../ui/FolderPicker";
 import { Button } from "../ui/Button";
-import { Segmented } from "../ui/Fields";
+import { Select } from "../ui/Select";
 import { ContextRing } from "./ContextRing";
 import { AttachButton, AttachmentStrip, imagesFromClipboard, type AttachmentsApi } from "./Attachments";
 import { Switch } from "../ui/Switch";
@@ -79,22 +79,22 @@ export function Composer({
           </label>
           <span className="inline-flex items-center gap-1.5 text-xs text-muted" title="Auto: runs commands on its own. Manual: you approve each command and run. Plan: read-only, only proposes a plan.">
             Mode
-            <Segmented<ChatMode>
-              label="Mode"
-              size="sm"
+            <Select
+              aria-label="Mode"
+              className="!w-auto !py-0.5 !pl-2 text-xs"
               value={prefs.mode ?? "auto"}
-              onChange={(mode) => onPrefs({ ...prefs, mode })}
+              onChange={(e) => onPrefs({ ...prefs, mode: e.target.value as ChatMode })}
               options={[{ value: "auto", label: "Auto" }, { value: "manual", label: "Manual" }, { value: "plan", label: "Plan" }]}
             />
           </span>
           <span className="inline-flex items-center gap-1.5 text-xs text-muted">
             Effort
-            <Segmented<ChatEffort>
-              label="Effort"
-              size="sm"
+            <Select
+              aria-label="Effort"
+              className="!w-auto !py-0.5 !pl-2 text-xs"
               value={prefs.effort}
-              onChange={(effort) => onPrefs({ ...prefs, effort })}
-              options={[{ value: "low", label: "low" }, { value: "medium", label: "medium" }, { value: "xhigh", label: "xhigh" }]}
+              onChange={(e) => onPrefs({ ...prefs, effort: e.target.value as ChatEffort })}
+              options={["low", "medium", "xhigh"]}
             />
           </span>
           {terminalOn && project?.folder && (
