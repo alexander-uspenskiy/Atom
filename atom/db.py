@@ -13,7 +13,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT DEFAULT '', instructions TEXT DEFAULT '',
   start_url TEXT, allowed_domains TEXT DEFAULT '[]', allow_private INTEGER DEFAULT 0,
-  tools TEXT, skills TEXT DEFAULT '[]', memory_scope TEXT DEFAULT 'global',
+  tools TEXT, skills TEXT DEFAULT '[]', memory_scope TEXT DEFAULT 'agent',
   thinking TEXT DEFAULT 'inherit', effort TEXT DEFAULT 'inherit', max_steps INTEGER, temperature REAL,
   profile TEXT, is_default INTEGER DEFAULT 0, created_at REAL, updated_at REAL, workdir TEXT
 );

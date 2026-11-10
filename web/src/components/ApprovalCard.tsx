@@ -21,6 +21,7 @@ export const kindMeta: Record<string, { icon: LucideIcon; label: string }> = {
   create_agent: { icon: Bot, label: "Create agent" },
   create_skill: { icon: BookOpen, label: "Create skill" },
   save_memory: { icon: Brain, label: "Save memory" },
+  update_memory: { icon: Brain, label: "Update memory" },
 };
 
 export function ApprovalCard({ action: initial, compact }: { action: PendingAction; compact?: boolean }) {

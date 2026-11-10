@@ -143,6 +143,25 @@ def test_memory_injection_search_and_agent_tools(client, fake, site):
     assert "remember" not in fake.calls[0]["tools"] and "Always answer in French" not in fake.calls[0]["messages"][1]["content"]
 
 
+def test_update_memory_replaces_own_memory_and_remember_dedupes(client, fake, site):
+    agent = make_local_agent(client, memory_scope="agent")
+    scope = f"agent:{agent['id']}"
+    mine = client.post("/api/memories", json={"content": "last status: 3 unread", "scope": scope}).json()
+    other = client.post("/api/memories", json={"content": "global fact"}).json()
+    fake.push({"calls": [("update_memory", {"id": mine["id"], "text": "last status: 0 unread", "title": "Status"}),
+                         ("update_memory", {"id": other["id"], "text": "hijack"}),
+                         ("remember", {"text": "last status: 3 unread"})]}, DONE())
+    rid = client.post(f"/api/agents/{agent['id']}/run", json={"task": "status", "start_url": site.base + "/"}).json()["run_id"]
+    wait_run(client, rid)
+    assert f"[{mine['id']}]" in fake.calls[0]["messages"][1]["content"]
+    pend = client.get("/api/actions?status=pending").json()
+    assert [p["kind"] for p in pend] == ["update_memory"]          # foreign-scope update refused, duplicate remember skipped
+    assert client.post(f"/api/actions/{pend[0]['id']}/approve").json()["status"] == "approved"
+    got = client.get(f"/api/memories?scope={scope}").json()
+    assert len(got) == 1 and got[0]["content"] == "last status: 0 unread" and got[0]["title"] == "Status"
+    assert client.get("/api/memories?scope=global").json()[0]["content"] == "global fact"
+
+
 def test_skills_crud_and_use_skill(client, fake, site):
     sk = client.post("/api/skills", json={"name": "read-staff", "description": "How to read the staff table",
                                           "when_to_use": "staff questions", "body": "# Steps\n1. Open /staff\n2. read_text"})

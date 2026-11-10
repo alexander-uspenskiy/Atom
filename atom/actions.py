@@ -10,7 +10,7 @@ from .settings_store import SettingsStore
 from .skills import SkillStore
 from .stores import ActionStore, AgentStore, Conflict, Invalid, MemoryStore, NotFound, ScheduleStore
 
-KINDS = ("create_schedule", "create_agent", "create_skill", "save_memory", "update_schedule", "delete_schedule")
+KINDS = ("create_schedule", "create_agent", "create_skill", "save_memory", "update_memory", "update_schedule", "delete_schedule")
 
 
 class ActionExecutor:
@@ -49,6 +49,10 @@ class ActionExecutor:
         elif kind == "save_memory":
             if not (p.get("content") or "").strip():
                 raise Invalid("memory needs content")
+        elif kind == "update_memory":
+            if not (p.get("content") or "").strip():
+                raise Invalid("memory needs content")
+            self.memory.get(str(p.get("id") or ""))      # NotFound if it is gone
         elif kind in ("update_schedule", "delete_schedule"):
             if not self.schedules.find(str(p.get("schedule") or "")):
                 raise Invalid(f"schedule '{p.get('schedule')}' not found; use list_schedules")
@@ -90,6 +94,10 @@ class ActionExecutor:
             return {"skill": s["name"]}
         if kind == "save_memory":
             m = self.memory.create({**p, "status": "active", "source": p.get("source") or "assistant"})
+            return {"memory_id": m["id"]}
+        if kind == "update_memory":
+            changes = {k: p[k] for k in ("title", "content", "tags") if k in p}
+            m = self.memory.update(str(p["id"]), changes)
             return {"memory_id": m["id"]}
         if kind == "update_schedule":
             target = self.schedules.find(str(p["schedule"]))

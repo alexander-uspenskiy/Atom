@@ -128,7 +128,7 @@ class AgentStore:
         if r:
             return self._out(r)
         return self.create({"name": "General web agent", "description": "Default browsing agent with all tools.",
-                            "memory_scope": "global"}, is_default=True)
+                            "memory_scope": "agent"}, is_default=True)
 
     def create(self, d: dict, *, is_default: bool = False) -> dict:
         c = self._clean(d)
@@ -136,7 +136,7 @@ class AgentStore:
             raise Conflict(f"an agent named '{c['name']}' already exists")
         aid, t = new_id(), now()
         row = {"id": aid, "description": "", "instructions": "", "start_url": None, "allowed_domains": "[]",
-               "allow_private": 0, "tools": None, "skills": "[]", "memory_scope": "global", "thinking": "inherit",
+               "allow_private": 0, "tools": None, "skills": "[]", "memory_scope": "agent", "thinking": "inherit",
                "effort": "inherit", "max_steps": None, "temperature": None, "profile": None, "workdir": None, "model": None,
                "is_default": int(is_default), "created_at": t, "updated_at": t, **c}
         cols = ",".join(row)

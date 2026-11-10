@@ -72,7 +72,7 @@ class RunConfig:
     workdir: str | None = None      # terminal working folder (agent setting; falls back to the global one)
     tool_names: list[str] | None = None
     skill_names: list[str] = field(default_factory=list)
-    memory_scope: str = "global"    # none | global | agent
+    memory_scope: str = "agent"     # none | global | agent
     trigger: str = "manual"
     schedule_id: str | None = None
     images: list[str] = field(default_factory=list)     # upload ids shown to the model with the task
@@ -147,6 +147,7 @@ class Agent:
             tools.pop("use_skill", None)
         if cfg.memory_scope == "none":
             tools.pop("remember", None)
+            tools.pop("update_memory", None)
             tools.pop("recall", None)
         return tools
 
@@ -253,7 +254,7 @@ class Agent:
                 mems = self.memory.relevant(task, scopes, s.memory_inject_k)
                 if mems:
                     user += "\n\nRelevant saved memories (facts from earlier; may be outdated):\n" + "\n".join(
-                        f"- {(m['title'] + ': ') if m['title'] else ''}{m['content']}" for m in mems)
+                        f"- [{m['id']}] {(m['title'] + ': ') if m['title'] else ''}{m['content']}" for m in mems)
             if first_obs:
                 user += f"\n\nCurrent page:\n{first_obs}"
             system_prompt = self._system_prompt(cfg, vs, tools)
@@ -416,7 +417,7 @@ class Agent:
                     if out.terminal:
                         status, result, success, finished = "done", out.result, out.success, True
                         break
-                    if tc.name not in ("note", "recall", "use_skill", "remember"):
+                    if tc.name not in ("note", "recall", "use_skill", "remember", "update_memory"):
                         await take_shot(llm_n, sidx)
                 if looks and not finished:
                     # Tool results are text-only; the screenshot rides in a user message right after them.
