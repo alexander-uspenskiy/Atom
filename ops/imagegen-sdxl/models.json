@@ -1,19 +1,13 @@
 {
-  "default": "lustify",
+  "default": "cyberrealistic",
   "models": {
-    "lustify": {
-      "file": "lustify-sdxl.safetensors",
-      "style": "natural",
-      "about": "LUSTIFY! SDXL: photoreal, including adult content. Plain English descriptions.",
-      "steps": 30, "cfg": 4.0, "sampler": "dpmpp_2m_karras",
-      "prefix": "",
-      "negative": "lowres, blurry, deformed, bad anatomy, extra fingers, watermark, text, signature"
-    },
     "cyberrealistic": {
       "file": "cyberrealistic-pony.safetensors",
       "style": "tags",
       "about": "CyberRealistic Pony (Pony-based, photoreal, very wide content range). Booru tags; the score prefix is added by the service.",
-      "steps": 30, "cfg": 5.0, "sampler": "euler_a",
+      "steps": 30,
+      "cfg": 5.0,
+      "sampler": "euler_a",
       "prefix": "score_9, score_8_up, score_7_up, ",
       "negative": "score_6, score_5, score_4, worst quality, low quality, blurry, watermark, text, signature, extra fingers, cartoon, anime, drawing, 3d"
     },
@@ -21,7 +15,9 @@
       "file": "illustrious-xl.safetensors",
       "style": "tags",
       "about": "Illustrious XL: anime and illustration. Danbooru tags; quality prefix is added by the service.",
-      "steps": 28, "cfg": 5.5, "sampler": "euler_a",
+      "steps": 28,
+      "cfg": 5.5,
+      "sampler": "euler_a",
       "prefix": "masterpiece, best quality, ",
       "negative": "worst quality, low quality, bad anatomy, bad hands, extra fingers, watermark, signature, text"
     }

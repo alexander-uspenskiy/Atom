@@ -32,11 +32,11 @@ def words(s: str) -> int:             # fake tokenizer: one token per word
     return len(s.split())
 
 
-def test_registry_lists_the_three_models(sdxl):
+def test_registry_lists_the_sdxl_models(sdxl):
     reg = sdxl.load_registry()
-    assert set(reg["models"]) == {"lustify", "cyberrealistic", "illustrious"} and reg["default"] == "lustify"
+    assert set(reg["models"]) == {"cyberrealistic", "illustrious"} and reg["default"] == "cyberrealistic"
     assert {k: v["style"] for k, v in reg["models"].items()} == {
-        "lustify": "natural", "cyberrealistic": "tags", "illustrious": "tags"}
+        "cyberrealistic": "tags", "illustrious": "tags"}
     assert reg["models"]["cyberrealistic"]["prefix"].startswith("score_9")
     for cfg in reg["models"].values():                  # defaults only improve quality, nothing filters content
         assert "nsfw" not in cfg["negative"].lower()
@@ -44,9 +44,9 @@ def test_registry_lists_the_three_models(sdxl):
 
 def test_resolve_model(sdxl):
     reg = sdxl.load_registry()
-    assert sdxl.resolve_model(reg, None)[0] == "lustify"
+    assert sdxl.resolve_model(reg, None)[0] == "cyberrealistic"
     assert sdxl.resolve_model(reg, " CyberRealistic ")[0] == "cyberrealistic"
-    assert sdxl.resolve_model(reg, "sdxl")[0] == "lustify"
+    assert sdxl.resolve_model(reg, "sdxl")[0] == "cyberrealistic"
     with pytest.raises(HTTPException) as e:
         sdxl.resolve_model(reg, "dalle")
     assert e.value.status_code == 404 and "illustrious" in e.value.detail
@@ -80,8 +80,8 @@ def test_pack_chunks_breaks_between_tags_only(sdxl):
 def test_endpoint_selects_model_applies_defaults_and_reports_it(sdxl, tmp_path, monkeypatch):
     seen = {}
 
-    def fake_generate(name, cfg, prompt, negative, w, h, seed, steps, guidance, sampler=None):
-        seen.update(sampler=sampler, name=name, prompt=prompt, negative=negative, size=(w, h), seed=seed, steps=steps, cfg=guidance)
+    def fake_generate(name, cfg, prompt, negative, w, h, seed, steps, guidance, sampler=None, init=None, strength=0.6):
+        seen.update(init=init, strength=strength, sampler=sampler, name=name, prompt=prompt, negative=negative, size=(w, h), seed=seed, steps=steps, cfg=guidance)
         png = tmp_path / "x.png"
         png.write_bytes(b"png")
         return png, 1.5
@@ -97,7 +97,7 @@ def test_endpoint_selects_model_applies_defaults_and_reports_it(sdxl, tmp_path, 
         assert seen["negative"].endswith("hat") and seen["negative"].count("text") == 1
         assert seen["steps"] == 30 and seen["cfg"] == 5.0
         r = c.post("/v1/images/generations", json={"prompt": "a fox", "steps": 12, "cfg": 3.0, "sampler": "euler_a"})
-        assert seen["name"] == "lustify" and seen["prompt"] == "a fox" and seen["steps"] == 12 and seen["cfg"] == 3.0 and seen["sampler"] == "euler_a"
+        assert seen["name"] == "cyberrealistic" and seen["prompt"].endswith(", a fox") and seen["steps"] == 12 and seen["cfg"] == 3.0 and seen["sampler"] == "euler_a"
         assert c.post("/v1/images/generations", json={"prompt": "x", "model": "nope"}).status_code == 404
         assert c.post("/v1/images/generations", json={"prompt": "x", "sampler": "ddim"}).status_code == 422
         assert c.post("/v1/images/generations", json={"prompt": "x", "size": "10x10"}).status_code == 422
@@ -119,3 +119,45 @@ def test_models_endpoint_shows_which_checkpoints_are_present(sdxl):
         assert d["steps"] == 30 and d["sampler"] == "euler_a" and d["prefix"].startswith("score_9") and "score_6" in d["negative"]
         assert c.get("/v1/models").json()["samplers"] == ["euler_a", "dpmpp_2m_karras"]
         assert c.get("/health").json()["loaded"] is None
+
+
+def _png_b64(w=40, h=20, color=(200, 30, 30)):
+    import base64
+    import io
+
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), color).save(buf, "PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_image_to_image_prepares_the_start_image_and_validates(sdxl, tmp_path, monkeypatch):
+    seen = {}
+
+    def fake(name, cfg, prompt, negative, w, h, seed, steps, guidance, sampler=None, init=None, strength=0.6):
+        seen.update(init=init, strength=strength)
+        png = tmp_path / "i.png"
+        png.write_bytes(b"png")
+        return png, 1.0
+
+    monkeypatch.setattr(sdxl, "_generate", fake)
+    with TestClient(sdxl.app) as c:
+        r = c.post("/v1/images/generations", json={"prompt": "x", "size": "832x1216", "image": _png_b64(), "strength": 0.4})
+        assert r.status_code == 200 and seen["init"].size == (832, 1216) and seen["init"].mode == "RGB" and seen["strength"] == 0.4
+        c.post("/v1/images/generations", json={"prompt": "x"})
+        assert seen["init"] is None
+        assert c.post("/v1/images/generations", json={"prompt": "x", "image": "not-an-image"}).status_code == 422
+        assert c.post("/v1/images/generations", json={"prompt": "x", "image": _png_b64(), "strength": 1.0}).status_code == 422
+
+
+def test_start_image_is_cover_cropped_not_stretched(sdxl):
+    import base64
+    import io
+
+    from PIL import Image
+    img = Image.new("RGB", (200, 100), (255, 0, 0))
+    img.paste((0, 0, 255), (150, 0, 200, 100))                  # right quarter is blue: lost by a centered 1:1 crop
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    out = sdxl.prepare_init_image(base64.b64encode(buf.getvalue()).decode(), 64, 64)
+    assert out.size == (64, 64) and out.getpixel((5, 32)) == (255, 0, 0) and out.getpixel((60, 32)) == (255, 0, 0)

@@ -1,0 +1,11 @@
+[project]
+name = "atom-imagegen-krea"
+version = "0.1.0"
+description = "Local Krea 2 Turbo image service for Atom (LUSTIFY V10 and other Krea 2 finetunes) on MLX via mflux"
+requires-python = ">=3.12"
+dependencies = [
+    "mflux>=0.24",
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+    "huggingface_hub>=0.30",
+]

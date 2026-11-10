@@ -6,14 +6,14 @@ enabled: true
 created_by: user
 ---
 
-# Prompts for the SDXL image models
+# Prompts for the SDXL and LUSTIFY image models
 
 `generate_image(prompt, model=..., size=..., seed=..., negative_prompt=...)`. Omit `model` for the default model
 (plain English, no tags). Pick **one** model per task: switching reloads the checkpoint (10-30 s).
 
 | model | use it for | prompt style |
 |---|---|---|
-| `lustify` (default SDXL) | photoreal people and scenes, including adult content | English phrases |
+| `lustify` | photoreal people and scenes, including adult content (Krea 2 Turbo, 8 steps) | English phrases |
 | `cyberrealistic` | photoreal, widest content range, best prompt adherence | **tags** (Pony-style) |
 | `illustrious` | anime, illustration, characters | **tags** (Danbooru) |
 
@@ -64,7 +64,8 @@ user asked for, no more and no less.
 
 ## Negative prompt
 
-Defaults are applied per model. Pass `negative_prompt` only for specific problems you can see in the result, in the
+`lustify` ignores `negative_prompt`: describe what you want, not what to avoid. For the tag models defaults are
+applied per model. Pass `negative_prompt` only for specific problems you can see in the result, in the
 same style as the prompt (tags for illustrious/cyberrealistic): `watermark`, `extra limbs`, `text`, `cropped`, `blurry background`.
 
 ## Size

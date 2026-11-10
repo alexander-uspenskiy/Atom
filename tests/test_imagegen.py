@@ -174,6 +174,10 @@ def test_backend_routing_and_disabled_sdxl(svc):
         imagegen.backend_url(s, "cyberrealistic")
     s = s.model_copy(update={"imagegen_sdxl_enabled": True})
     assert imagegen.backend_url(s, "cyberrealistic") == "http://x"
+    s = s.model_copy(update={"imagegen_krea_url": "http://k"})
+    with pytest.raises(imagegen.ImageGenError, match="Krea 2"):                   # lustify has its own switch
+        imagegen.backend_url(s, "lustify")
+    assert imagegen.backend_url(s.model_copy(update={"imagegen_krea_enabled": True}), "LUSTIFY") == "http://k"
 
 
 def test_tool_spec_offers_model_and_new_sizes():
@@ -185,6 +189,7 @@ def test_tool_spec_offers_model_and_new_sizes():
 def test_sdxl_settings_default_off_and_listed(client):
     vals = client.get("/api/settings").json()["values"]
     assert vals["imagegen_sdxl_enabled"] is False and vals["imagegen_sdxl_url"].endswith(":8091")
+    assert vals["imagegen_krea_enabled"] is False and vals["imagegen_krea_url"].endswith(":8092")
 
 
 # ---------------------------------------------------------------- Images page (direct, no chat model)
@@ -197,9 +202,10 @@ def lab(tmp_path, monkeypatch, client):
     calls: list[dict] = []
 
     async def fake_generate(s, prompt, size="1024x1024", seed=None, model=None, negative_prompt=None, steps=None,
-                            cfg=None, sampler=None):
+                            cfg=None, sampler=None, image_b64=None, strength=None):
         calls.append({"prompt": prompt, "size": size, "seed": seed, "model": model, "neg": negative_prompt,
-                      "steps": steps, "cfg": cfg, "sampler": sampler, "sdxl_on": s.imagegen_sdxl_enabled})
+                      "steps": steps, "cfg": cfg, "sampler": sampler, "sdxl_on": s.imagegen_sdxl_enabled,
+                      "image": image_b64, "strength": strength})
         png = tmp_path / f"gen{len(calls)}.png"
         png.write_bytes(PNG)
         return imagegen.GeneratedImage(png, png, seed or 11, 1024, 1024, 2.0)
@@ -216,7 +222,8 @@ def test_lab_generate_saves_into_output_folder_and_result_is_previewable(client,
     assert r.status_code == 200, r.text
     d = r.json()
     assert calls[0] == {"prompt": "1girl, solo, rain", "size": "832x1216", "seed": 5, "model": "illustrious",
-                        "neg": "text", "steps": 20, "cfg": 6.0, "sampler": "euler_a", "sdxl_on": True}
+                        "neg": "text", "steps": 20, "cfg": 6.0, "sampler": "euler_a", "sdxl_on": True,
+                        "image": None, "strength": None}
     assert d["path"].startswith(str(out)) and d["path"].endswith("-illustrious-1girl-solo-rain.png")
     assert d["seed"] == 5 and d["model"] == "illustrious" and (out.exists() and len(list(out.glob("*.png"))) == 1)
     shown = client.get("/api/local-file", params={"path": d["path"]})            # the clickable path works
@@ -252,6 +259,9 @@ def test_lab_models_lists_both_services_with_defaults(client, monkeypatch):
     async def fake_get(url):
         if url.endswith("/health"):
             return {"ok": True, "loaded": False, "model_present": True}
+        if ":8092" in url:
+            return {"default": "lustify", "data": [{"id": "lustify", "style": "natural", "about": "krea", "present": True,
+                                                    "loaded": True, "defaults": {"steps": 8}}]}
         return {"default": "lustify", "samplers": ["euler_a", "dpmpp_2m_karras"], "data": [
             {"id": "illustrious", "style": "tags", "about": "anime", "present": True, "loaded": False,
              "defaults": {"steps": 28, "cfg": 5.5, "sampler": "euler_a", "prefix": "masterpiece, ", "negative": "bad"}}]}
@@ -259,12 +269,66 @@ def test_lab_models_lists_both_services_with_defaults(client, monkeypatch):
     monkeypatch.setattr(imagelab, "_get", fake_get)
     d = client.get("/api/imagelab/models").json()
     ids = {m["id"]: m for m in d["models"]}
-    assert list(ids) == ["z-image", "illustrious"] and d["services"]["sdxl"]["up"] and d["samplers"][0] == "euler_a"
+    assert list(ids) == ["z-image", "illustrious", "lustify"] and d["services"]["sdxl"]["up"] and d["services"]["krea"]["up"] and d["samplers"][0] == "euler_a"
     assert ids["z-image"]["supports"]["negative"] is False and ids["illustrious"]["supports"]["cfg"] is True
+    assert ids["lustify"]["backend"] == "krea" and ids["lustify"]["supports"]["negative"] is False and ids["lustify"]["loaded"]
     assert ids["illustrious"]["defaults"]["prefix"] == "masterpiece, " and d["output_dir"].endswith("AtomImages")
 
 
 def test_lab_models_reports_services_down(client):
-    client.put("/api/settings", json={"values": {"imagegen_url": "http://127.0.0.1:9", "imagegen_sdxl_url": "http://127.0.0.1:9"}})
+    client.put("/api/settings", json={"values": {"imagegen_url": "http://127.0.0.1:9", "imagegen_sdxl_url": "http://127.0.0.1:9",
+                                                 "imagegen_krea_url": "http://127.0.0.1:9"}})
     d = client.get("/api/imagelab/models").json()      # nothing listens on port 9
     assert d["models"][0]["id"] == "z-image" and d["models"][0]["up"] is False and d["services"]["sdxl"]["up"] is False
+    lus = [m for m in d["models"] if m["id"] == "lustify"][0]               # still listed, so the page can say how to start it
+    assert lus["backend"] == "krea" and lus["up"] is False and d["services"]["krea"]["up"] is False
+
+
+def test_lab_image_to_image_sends_the_upload_and_strength(client, lab):
+    out, calls = lab
+    up = client.post("/api/uploads?name=start.png", content=PNG, headers={"content-type": "application/octet-stream"})
+    assert up.status_code == 201, up.text
+    r = client.post("/api/imagelab/generate", json={"model": "lustify", "prompt": "oil painting", "image_id": up.json()["id"],
+                                                    "strength": 0.35})
+    assert r.status_code == 200, r.text
+    assert base64.b64decode(calls[0]["image"]) == PNG and calls[0]["strength"] == 0.35
+    assert r.json()["image_to_image"] is True
+    plain = client.post("/api/imagelab/generate", json={"model": "lustify", "prompt": "a fox"}).json()
+    assert calls[1]["image"] is None and plain["image_to_image"] is False
+
+
+def test_lab_image_to_image_rejects_bad_uploads_and_strength(client, lab):
+    out, calls = lab
+    assert client.post("/api/imagelab/generate", json={"prompt": "x", "image_id": "0123456789abcdef"}).status_code == 404
+    doc = client.post("/api/uploads?name=notes.txt", content=b"hello there", headers={"content-type": "application/octet-stream"})
+    assert doc.status_code == 201 and doc.json()["kind"] == "document"
+    r = client.post("/api/imagelab/generate", json={"prompt": "x", "image_id": doc.json()["id"]})
+    assert r.status_code == 422 and "not an image" in r.text
+    assert client.post("/api/imagelab/generate", json={"prompt": "x", "strength": 1.5}).status_code == 422
+    assert not calls
+
+
+def test_client_sends_image_and_strength_only_when_given(monkeypatch):
+    import asyncio
+    sent = {}
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"path": "/x.png", "preview_path": "/x.jpg", "seed": 1, "width": 8, "height": 8, "seconds": 1}]}
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json): sent.update(url=url, body=json); return FakeResp()
+
+    monkeypatch.setattr(imagegen.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(imagegen.Path, "exists", lambda self: True)
+    from atom.config import Settings
+    s = Settings(imagegen_krea_enabled=True)
+    asyncio.run(imagegen.generate(s, "a fox", model="lustify", image_b64="QUJD", strength=0.4))
+    assert sent["url"].endswith(":8092/v1/images/generations") and sent["body"]["image"] == "QUJD" and sent["body"]["strength"] == 0.4
+    asyncio.run(imagegen.generate(s, "a fox", model="lustify"))
+    assert "image" not in sent["body"] and "strength" not in sent["body"]

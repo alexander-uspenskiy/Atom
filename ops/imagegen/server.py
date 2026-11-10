@@ -49,6 +49,8 @@ class GenRequest(BaseModel):
     seed: int | None = None
     steps: int | None = Field(default=None, ge=1, le=20)
     n: int = Field(default=1, ge=1, le=1)      # accepted for OpenAI compatibility; one image per call
+    image: str | None = Field(default=None, max_length=24_000_000)   # base64 start image (image-to-image)
+    strength: float = Field(default=0.6, ge=0.05, le=0.95)            # how much to change it: low keeps it, high repaints
 
 
 def parse_size(size: str) -> tuple[int, int]:
@@ -59,6 +61,24 @@ def parse_size(size: str) -> tuple[int, int]:
     if not (MIN_SIDE <= w <= MAX_SIDE and MIN_SIDE <= h <= MAX_SIDE) or w * h > MAX_PIXELS:
         raise HTTPException(422, f"size out of range: each side {MIN_SIDE}-{MAX_SIDE}, at most {MAX_PIXELS} pixels")
     return w, h
+
+
+def prepare_init_image(data: str, w: int, h: int):
+    """Decode the caller's base64 image, apply its EXIF rotation, cover-crop to the target aspect and resize to w x h."""
+    import base64
+    import binascii
+    import io
+
+    from PIL import Image, ImageOps
+    raw = data.split(",", 1)[1] if data.startswith("data:") else data
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(raw)))
+        if img.width * img.height > 64_000_000:
+            raise HTTPException(422, "image is too large (over 64 megapixels)")
+        img.load()
+    except (binascii.Error, ValueError, OSError) as e:
+        raise HTTPException(422, "image must be a base64-encoded PNG, JPEG or WebP") from e
+    return ImageOps.fit(ImageOps.exif_transpose(img).convert("RGB"), (w, h), Image.LANCZOS)
 
 
 def _load():
@@ -80,14 +100,24 @@ def _unload() -> None:
         pass
 
 
-def _generate(prompt: str, w: int, h: int, seed: int, steps: int) -> tuple[Path, float]:
+def _generate(prompt: str, w: int, h: int, seed: int, steps: int, init=None, strength: float = 0.6) -> tuple[Path, float]:
     global _model, _loaded_at
     t0 = time.monotonic()
     if _model is None:
         _model = _load()
         _loaded_at = time.time()
-    img = _model.generate_image(seed=seed, prompt=prompt, num_inference_steps=steps, width=w, height=h)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    extra = {}
+    tmp = None
+    if init is not None:               # mflux's image_strength is how much of the picture to keep (1 - our change amount)
+        tmp = OUT_DIR / f".init-{uuid.uuid4().hex[:8]}.png"
+        init.save(tmp)
+        extra = {"image_path": str(tmp), "image_strength": round(1.0 - strength, 3)}
+    try:
+        img = _model.generate_image(seed=seed, prompt=prompt, num_inference_steps=steps, width=w, height=h, **extra)
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     path = OUT_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.png"
     img.save(path=str(path), export_json_metadata=False)
     # Small JPEG next to the PNG: this is what gets shown to the vision model (a full 1024px PNG is megabytes).
@@ -103,9 +133,11 @@ async def generations(req: GenRequest) -> dict:
     global _last_used
     w, h = parse_size(req.size)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31 - 1)
+    init = prepare_init_image(req.image, w, h) if req.image else None
     async with _lock:                                   # one image at a time; callers queue
         try:
-            path, secs = await asyncio.to_thread(_generate, req.prompt, w, h, seed, req.steps or DEFAULT_STEPS)
+            path, secs = await asyncio.to_thread(_generate, req.prompt, w, h, seed, req.steps or DEFAULT_STEPS, init,
+                                                 req.strength)
         except RuntimeError as e:
             raise HTTPException(503, str(e)) from e
         _last_used = time.monotonic()

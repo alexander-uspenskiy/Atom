@@ -1,13 +1,12 @@
 # Atom SDXL image service
 
-Second image backend next to [ops/imagegen](../imagegen/README.md) (Z-Image). It serves three SDXL checkpoints with
+Second image backend next to [ops/imagegen](../imagegen/README.md) (Z-Image). It serves two SDXL checkpoints (`lustify` is a Krea 2 model and lives in [ops/imagegen-krea](../imagegen-krea/README.md)) with
 [diffusers](https://github.com/huggingface/diffusers) on Apple Silicon (MPS), in its own environment so torch stays out
 of Atom. No safety checker and no content filter are applied.
 
 | `model` | for | prompt style |
 |---|---|---|
-| `lustify` (default) | photoreal, including adult content (LUSTIFY! SDXL, from Civitai) | English |
-| `cyberrealistic` | photoreal, Pony-based, widest content range ([CyberRealistic Pony](https://huggingface.co/cyberdelia/CyberRealisticPony)) | tags |
+| `cyberrealistic` (default) | photoreal, Pony-based, widest content range ([CyberRealistic Pony](https://huggingface.co/cyberdelia/CyberRealisticPony)) | tags |
 | `illustrious` | anime, illustration ([Illustrious XL v1.0](https://huggingface.co/OnomaAIResearch/Illustrious-XL-v1.0)) | tags |
 
 **Memory model:** checkpoints sit on disk and use no RAM. The one named in the request is loaded on demand; asking for a
@@ -22,10 +21,8 @@ mkdir -p ../../data/models/sdxl
 ```
 
 Put single-file `.safetensors` checkpoints into `data/models/sdxl/`, named as in [models.json](models.json)
-(`lustify-sdxl`, `cyberrealistic-pony`, `illustrious-xl`, each `.safetensors`). Get them from the model's own page
-and check each model's license: CyberRealistic Pony and Illustrious have official Hugging Face repos; LUSTIFY is
-distributed on Civitai. Using a different file (a NoobAI-XL finetune, another LUSTIFY
-version) just means editing its `file` in models.json; you can also add more entries. The first load of any checkpoint
+(`cyberrealistic-pony`, `illustrious-xl`, each `.safetensors`). Both have official Hugging Face repos; check each
+model's license. Using a different file (a NoobAI-XL finetune, another CyberRealistic version) just means editing its `file` in models.json; you can also add more entries. The first load of any checkpoint
 needs network once, so diffusers can fetch the small SDXL config files into the Hugging Face cache.
 
 ```bash

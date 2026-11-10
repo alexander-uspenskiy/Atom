@@ -48,6 +48,7 @@ CLIP_CHUNK = 75        # CLIP reads 77 tokens including start/end; longer prompt
 
 app = FastAPI(title="atom-imagegen-sdxl")
 _pipe: Any = None
+_i2i: Any = None         # image-to-image pipeline built from the same components (no extra weights in memory)
 _loaded_name: str | None = None
 _last_used = 0.0
 _lock = asyncio.Lock()
@@ -125,6 +126,24 @@ def _device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def prepare_init_image(data: str, w: int, h: int):
+    """Decode the caller's base64 image, apply its EXIF rotation, cover-crop to the target aspect and resize to w x h."""
+    import base64
+    import binascii
+    import io
+
+    from PIL import Image, ImageOps
+    raw = data.split(",", 1)[1] if data.startswith("data:") else data
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(raw)))
+        if img.width * img.height > 64_000_000:
+            raise HTTPException(422, "image is too large (over 64 megapixels)")
+        img.load()
+    except (binascii.Error, ValueError, OSError) as e:
+        raise HTTPException(422, "image must be a base64-encoded PNG, JPEG or WebP") from e
+    return ImageOps.fit(ImageOps.exif_transpose(img).convert("RGB"), (w, h), Image.LANCZOS)
+
+
 def _load(name: str, cfg: dict):
     path = MODELS_DIR / cfg["file"]
     if not path.is_file():
@@ -141,8 +160,8 @@ def _load(name: str, cfg: dict):
 
 
 def _unload() -> None:
-    global _pipe, _loaded_name
-    _pipe, _loaded_name = None, None
+    global _pipe, _loaded_name, _i2i
+    _pipe, _loaded_name, _i2i = None, None, None
     gc.collect()
     try:
         import torch
@@ -178,23 +197,35 @@ def _encode(pipe, text: str):
 
 
 def _generate(name: str, cfg: dict, prompt: str, negative: str, w: int, h: int, seed: int, steps: int,
-              guidance: float, sampler: str | None = None) -> tuple[Path, float]:
-    global _pipe, _loaded_name
+              guidance: float, sampler: str | None = None, init=None,
+              strength: float = 0.6) -> tuple[Path, float]:
+    global _pipe, _loaded_name, _i2i
     t0 = time.monotonic()
     if _loaded_name != name:
         _unload()                                  # one checkpoint resident at a time
         _pipe, _loaded_name = _load(name, cfg), name
-    _set_sampler(_pipe, sampler or cfg.get("sampler", "dpmpp_2m_karras"))
+    pipe = _pipe
+    if init is not None:
+        from diffusers import StableDiffusionXLImg2ImgPipeline
+        if _i2i is None:
+            _i2i = StableDiffusionXLImg2ImgPipeline.from_pipe(_pipe)
+            _i2i.set_progress_bar_config(disable=True)
+        pipe = _i2i
+    _set_sampler(pipe, sampler or cfg.get("sampler", "dpmpp_2m_karras"))
     pos, pos_pooled, torch = _encode(_pipe, prompt)
     neg, neg_pooled, _ = _encode(_pipe, negative)
     n = max(len(pos), len(neg))                    # both sides must have the same sequence length
     empty, _, _ = _encode(_pipe, "")
     pos += empty * (n - len(pos))
     neg += empty * (n - len(neg))
-    img = _pipe(prompt_embeds=torch.cat(pos, dim=1), pooled_prompt_embeds=pos_pooled,
-                negative_prompt_embeds=torch.cat(neg, dim=1), negative_pooled_prompt_embeds=neg_pooled,
-                width=w, height=h, num_inference_steps=steps, guidance_scale=guidance,
-                generator=torch.Generator(device="cpu").manual_seed(seed)).images[0]
+    kw = dict(prompt_embeds=torch.cat(pos, dim=1), pooled_prompt_embeds=pos_pooled,
+              negative_prompt_embeds=torch.cat(neg, dim=1), negative_pooled_prompt_embeds=neg_pooled,
+              num_inference_steps=steps, guidance_scale=guidance,
+              generator=torch.Generator(device="cpu").manual_seed(seed))
+    if init is not None:               # diffusers strength = how much to change, the same meaning as ours
+        img = pipe(image=init, strength=strength, **kw).images[0]
+    else:
+        img = pipe(width=w, height=h, **kw).images[0]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.png"
     img.save(path)
@@ -214,6 +245,8 @@ class GenRequest(BaseModel):
     steps: int | None = Field(default=None, ge=1, le=60)
     cfg: float | None = Field(default=None, ge=1, le=15)
     sampler: Literal["euler_a", "dpmpp_2m_karras"] | None = None
+    image: str | None = Field(default=None, max_length=24_000_000)   # base64 start image (image-to-image)
+    strength: float = Field(default=0.6, ge=0.05, le=0.95)            # how much to change it: low keeps it, high repaints
     negative_prompt: str | None = Field(default=None, max_length=2000)
     n: int = Field(default=1, ge=1, le=1)      # accepted for OpenAI compatibility; one image per call
 
@@ -225,6 +258,7 @@ async def generations(req: GenRequest) -> dict:
     name, cfg = resolve_model(registry, req.model)
     w, h = parse_size(req.size)
     seed = req.seed if req.seed is not None else random.randint(0, 2**31 - 1)
+    init = prepare_init_image(req.image, w, h) if req.image else None
     prompt = apply_prefix(req.prompt, cfg.get("prefix", ""))
     negative = merge_negative(cfg.get("negative", ""), req.negative_prompt)
     steps = req.steps or int(cfg.get("steps", 28))
@@ -232,7 +266,7 @@ async def generations(req: GenRequest) -> dict:
     async with _lock:                                   # one image at a time; callers queue
         try:
             path, secs = await asyncio.to_thread(_generate, name, cfg, prompt, negative, w, h, seed, steps, guidance,
-                                                 req.sampler)
+                                                 req.sampler, init, req.strength)
         except RuntimeError as e:
             raise HTTPException(503, str(e)) from e
         _last_used = time.monotonic()

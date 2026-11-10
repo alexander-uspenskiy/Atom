@@ -49,6 +49,8 @@ class ImageLabIn(BaseModel):
     cfg: float | None = Field(default=None, ge=1, le=15)
     sampler: str | None = None
     negative_prompt: str | None = Field(default=None, max_length=2000)
+    image_id: str | None = None        # an uploaded image (POST /api/uploads) to start from: image-to-image
+    strength: float | None = Field(default=None, ge=0.05, le=0.95)    # how much to change it (higher = more)
 
 
 class VariableIn(BaseModel):
@@ -629,8 +631,16 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     @app.post("/api/imagelab/generate")
     async def imagelab_generate(request: Request, body: ImageLabIn):
         from .. import imagegen, imagelab
+        svc = svc_of(request)
+        args = body.model_dump()
+        image = None
+        if args.pop("image_id"):
+            uid = body.image_id
+            if svc.uploads.info(uid)["kind"] != "image":              # NotFound for an unknown id
+                raise Invalid("the attached upload is not an image")
+            image = await asyncio.to_thread(svc.uploads.path(uid).read_bytes)
         try:
-            return await imagelab.generate(svc_of(request).settings.effective(), **body.model_dump())
+            return await imagelab.generate(svc.settings.effective(), image=image, **args)
         except imagegen.ImageGenError as e:
             raise HTTPException(502, str(e)) from e
 

@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
-import { Copy, Dices, FolderOpen, Image as ImageIcon, Loader2, RotateCcw, Send, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Copy, Dices, FolderOpen, Image as ImageIcon, ImagePlus, Loader2, RotateCcw, Send, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { api, localFileUrl } from "../api/client";
 import { useImageModels } from "../api/hooks";
+import { useToast } from "../components/ui/Toast";
 import type { ImageLabBody, ImageLabResult, ImageModel } from "../api/types";
+import { DropOverlay, useDropImages } from "../components/chat/Attachments";
 import { Page } from "../components/Page";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Field } from "../components/ui/Fields";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
 import { cn } from "../lib/cn";
 import { errMsg } from "../lib/format";
+import { isImageFile } from "../lib/images";
 import { lsGet, lsSet } from "../lib/storage";
 
 const MODEL_KEY = "atom-images-model";
 const SETTINGS_KEY = "atom-images-settings";
 const HISTORY_KEY = "atom-images-history";
 const HISTORY_MAX = 30;
+const SERVICE_LABEL = { zimage: "Z-Image", sdxl: "SDXL", krea: "LUSTIFY" } as const;
+const SERVICE_DIR = { zimage: "ops/imagegen", sdxl: "ops/imagegen-sdxl", krea: "ops/imagegen-krea" } as const;
 
 /** Per-model form values. An empty string means "use the model's default" (shown as the placeholder). */
 interface Knobs { size: string; steps: string; cfg: string; sampler: string; seed: string; negative: string }
@@ -53,6 +57,20 @@ const num = (s: string): number | null => {
   return s.trim() !== "" && Number.isFinite(n) ? n : null;
 };
 
+/** The listed size whose aspect ratio is closest to w:h, preferring about one megapixel or less. */
+function closestSize(sizes: string[], w: number, h: number): string | null {
+  const ratio = w / h;
+  let best: string | null = null;
+  let bestScore = Infinity;
+  for (const s of sizes) {
+    const [sw, sh] = s.split("x").map(Number);
+    if (!sw || !sh || sw * sh < 500_000) continue;
+    const score = Math.abs(Math.log(sw / sh / ratio)) + (sw * sh > 1_100_000 ? 0.5 : 0);
+    if (score < bestScore) { best = s; bestScore = score; }
+  }
+  return best;
+}
+
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -64,10 +82,11 @@ function Elapsed({ since }: { since: number }) {
 
 function UserBubble({ item }: { item: Item }) {
   const b = item.body;
-  const extras = [b.size, b.steps ? `${b.steps} steps` : "", b.cfg ? `cfg ${b.cfg}` : "", b.sampler ?? "", b.seed != null ? `seed ${b.seed}` : ""].filter(Boolean);
+  const extras = [b.size, b.image_id ? `from image, change ${b.strength ?? 0.6}` : "", b.steps ? `${b.steps} steps` : "", b.cfg ? `cfg ${b.cfg}` : "", b.sampler ?? "", b.seed != null ? `seed ${b.seed}` : ""].filter(Boolean);
   return (
     <div className="flex justify-end" data-testid="image-prompt">
       <div className="flex max-w-[85%] flex-col items-end gap-1">
+        {b.image_id && <img src={api.uploadUrl(b.image_id)} alt="start image" className="max-h-28 rounded-md border border-line" />}
         <div className="whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{item.prompt}</div>
         {b.negative_prompt && <div className="max-w-full truncate text-xs text-muted" title={b.negative_prompt}>negative: {b.negative_prompt}</div>}
         <div className="text-xs text-muted">{item.model}{extras.length > 0 && ` · ${extras.join(" · ")}`}</div>
@@ -76,7 +95,7 @@ function UserBubble({ item }: { item: Item }) {
   );
 }
 
-function ResultBubble({ item, onReuse, onSeed }: { item: Item; onReuse: (i: Item) => void; onSeed: (seed: number) => void }) {
+function ResultBubble({ item, onReuse, onSeed, onUseAsInput }: { item: Item; onReuse: (i: Item) => void; onSeed: (seed: number) => void; onUseAsInput?: (path: string) => void }) {
   const toast = useToast();
   const r = item.result;
   return (
@@ -135,6 +154,11 @@ function ResultBubble({ item, onReuse, onSeed }: { item: Item; onReuse: (i: Item
               </Button>
               <Button size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => onReuse(item)}>Reuse settings</Button>
               <Button size="sm" onClick={() => onSeed(r.seed)} title="Keep this composition and change the prompt">Use this seed</Button>
+              {onUseAsInput && (
+                <Button size="sm" icon={<ImagePlus className="h-3.5 w-3.5" />} onClick={() => onUseAsInput(r.path)} title="Attach this result as the start image for the next generation">
+                  Use as input
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -153,6 +177,11 @@ export default function ImagesPage() {
   const [items, setItems] = useState<Item[]>(() => loadJSON<Item[]>(HISTORY_KEY, []).filter((i) => i.status === "done"));
   const ta = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+  const [attached, setAttached] = useState<{ id: string; name: string } | null>(null);
+  const [change, setChange] = useState(0.6);
+  const [uploading, setUploading] = useState(false);
 
   // Default to the first model that is actually installed once the list arrives.
   const model: ImageModel | undefined = useMemo(
@@ -172,6 +201,37 @@ export default function ImagesPage() {
     setModelId(id);
     lsSet(MODEL_KEY, id);
   };
+
+  const canImage = model?.supports.image !== false;
+  const attach = useCallback(async (file: File) => {
+    if (!isImageFile(file)) { toast.error("That is not an image (PNG, JPEG, WebP or GIF)"); return; }
+    setUploading(true);
+    try {
+      const info = await api.uploadFile(file);
+      setAttached({ id: info.id, name: file.name || "image" });
+      try {                                   // match the output shape to the picture
+        const bmp = await createImageBitmap(file);
+        const size = closestSize(q.data?.sizes ?? [], bmp.width, bmp.height);
+        bmp.close();
+        if (size) setKnobs({ size });
+      } catch { /* keep the current size */ }
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setUploading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.data?.sizes, model?.id]);
+  const useAsInput = useCallback(async (path: string) => {
+    try {
+      const blob = await (await fetch(localFileUrl(path))).blob();
+      await attach(new File([blob], path.split("/").pop() ?? "result.png", { type: blob.type || "image/png" }));
+      ta.current?.focus();
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  }, [attach, toast]);
+  const drop = useDropImages((files) => { if (files[0]) void attach(files[0]); }, canImage);
 
   const busy = items.some((i) => i.status === "pending");
   const ready = !!model && model.up && model.present;
@@ -201,6 +261,8 @@ export default function ImagesPage() {
       cfg: model.supports.cfg ? num(knobs.cfg) : null,
       sampler: model.supports.sampler && knobs.sampler ? knobs.sampler : null,
       negative_prompt: model.supports.negative && knobs.negative.trim() ? knobs.negative.trim() : null,
+      image_id: attached && canImage ? attached.id : null,
+      strength: attached && canImage ? change : null,
     };
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     setItems((l) => [...l, { id, model: model.id, prompt: text, body, at: Date.now(), status: "pending" }]);
@@ -212,7 +274,7 @@ export default function ImagesPage() {
     } catch (e) {
       setItems((l) => l.map((i) => (i.id === id ? { ...i, status: "error", error: errMsg(e) } : i)));
     }
-  }, [prompt, model, busy, ready, knobs, q]);
+  }, [prompt, model, busy, ready, knobs, q, attached, change, canImage]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -225,6 +287,8 @@ export default function ImagesPage() {
     const m = models.find((x) => x.id === i.model);
     if (m) pickModel(m.id);
     setPrompt(i.prompt);
+    setAttached(i.body.image_id ? { id: i.body.image_id, name: "previous image" } : null);
+    if (i.body.strength) setChange(i.body.strength);
     setKnobsByModel((all) => {
       const b = i.body;
       const next = {
@@ -241,7 +305,7 @@ export default function ImagesPage() {
   };
 
   const status = !model ? null : !model.up
-    ? { tone: "err" as const, text: `${model.backend === "sdxl" ? "SDXL" : "Z-Image"} service is not running` }
+    ? { tone: "err" as const, text: `${SERVICE_LABEL[model.backend]} service is not running` }
     : !model.present
       ? { tone: "warn" as const, text: "checkpoint not installed" }
       : model.loaded
@@ -294,7 +358,7 @@ export default function ImagesPage() {
             {items.map((i) => (
               <div key={i.id} className="space-y-3">
                 <UserBubble item={i} />
-                <ResultBubble item={i} onReuse={reuse} onSeed={(seed) => { setKnobs({ seed: String(seed) }); setShowSettings(true); }} />
+                <ResultBubble item={i} onReuse={reuse} onUseAsInput={canImage ? (path) => void useAsInput(path) : undefined} onSeed={(seed) => { setKnobs({ seed: String(seed) }); setShowSettings(true); }} />
               </div>
             ))}
             <div ref={end} />
@@ -303,7 +367,25 @@ export default function ImagesPage() {
 
         <div className="border-t border-line bg-surface p-3">
           <div className="mx-auto max-w-3xl">
-            <div className="rounded-lg border border-line bg-bg focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25" data-testid="image-composer">
+            <div className="relative rounded-lg border border-line bg-bg focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25" data-testid="image-composer" {...(drop.handlers as object)}>
+              <DropOverlay show={drop.over} label="Drop an image to start from it" />
+              {attached && canImage && (
+                <div className="flex flex-wrap items-center gap-3 border-b border-line/70 px-3 py-2" data-testid="image-attachment">
+                  <img src={api.uploadUrl(attached.id)} alt="start image" className="h-12 w-12 rounded-md border border-line object-cover" />
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium">{attached.name}</div>
+                    <div className="text-xs text-muted">Image-to-image: your picture is the starting point</div>
+                  </div>
+                  <label className="ml-auto flex items-center gap-2 text-xs text-muted" title="Low keeps your picture and only restyles it. High repaints most of it.">
+                    Change
+                    <input type="range" min={0.05} max={0.95} step={0.05} value={change} onChange={(e) => setChange(Number(e.target.value))} aria-label="Change amount" className="h-1.5 w-32 accent-[rgb(var(--accent))]" />
+                    <output className="w-9 text-right font-mono tabular-nums text-fg">{change.toFixed(2)}</output>
+                  </label>
+                  <button type="button" aria-label="Remove start image" title="Remove start image" className="rounded p-1 text-muted hover:bg-surface2 hover:text-err" onClick={() => setAttached(null)}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               {showSettings && model && (
                 <div className="grid grid-cols-2 gap-3 border-b border-line/70 p-3 sm:grid-cols-4" data-testid="image-settings">
                   <Field label="Steps" htmlFor="img-steps" hint={`${model.supports.steps[0]}–${model.supports.steps[1]}`}>
@@ -358,6 +440,10 @@ export default function ImagesPage() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={onKey}
+                onPaste={(e) => {
+                  const f = Array.from(e.clipboardData?.files ?? []).find(isImageFile);
+                  if (f && canImage) { e.preventDefault(); void attach(f); }
+                }}
               />
               <div className="flex flex-wrap items-center gap-3 border-t border-line/70 px-2 py-1.5">
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted">
@@ -380,6 +466,18 @@ export default function ImagesPage() {
                     options={q.data?.sizes ?? ["1024x1024"]}
                   />
                 </span>
+                {canImage && (
+                  <>
+                    <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-testid="image-input"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void attach(f); }} />
+                    <button type="button" onClick={() => fileInput.current?.click()} disabled={uploading}
+                      className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg disabled:opacity-50"
+                      title="Attach an image to start from (or paste / drop one)">
+                      {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <ImagePlus className="h-3.5 w-3.5" aria-hidden />}
+                      Image
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowSettings((v) => !v)}
@@ -402,8 +500,10 @@ export default function ImagesPage() {
             {status && (status.tone === "err" || status.tone === "warn") && model && (
               <p className="mt-1.5 text-xs text-muted">
                 {!model.up
-                  ? `Start it with ${model.backend === "sdxl" ? "ops/imagegen-sdxl/run.sh" : "ops/imagegen/run.sh"} (expected at ${q.data?.services[model.backend].url ?? "its URL"}).`
-                  : `Put the checkpoint file in data/models/sdxl/ (see ops/imagegen-sdxl/README.md).`}
+                  ? `Start it with ${SERVICE_DIR[model.backend]}/run.sh (expected at ${q.data?.services[model.backend].url ?? "its URL"}).`
+                  : model.backend === "krea"
+                    ? "Build the model folder first: see ops/imagegen-krea/README.md."
+                    : `Put the checkpoint file in data/models/sdxl/ (see ops/imagegen-sdxl/README.md).`}
               </p>
             )}
           </div>

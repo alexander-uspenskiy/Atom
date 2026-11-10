@@ -87,11 +87,14 @@ class Settings(BaseSettings):
     # --- Image generation (local Z-Image-Turbo service in ops/imagegen; off by default) ---
     imagegen_enabled: bool = False
     imagegen_url: str = "http://127.0.0.1:8090"
-    imagegen_timeout_s: int = 300    # per image; the first one also loads the model
+    imagegen_timeout_s: int = 900    # per image; the first one also loads the model (LUSTIFY V10 can take minutes)
     imagegen_max_per_run: int = 4    # cap per agent run / chat turn so a loop cannot burn the GPU
-    # Second image service (ops/imagegen-sdxl: LUSTIFY / CyberRealistic Pony / Illustrious). Chosen per call via `model`.
+    # Second image service (ops/imagegen-sdxl: CyberRealistic Pony / Illustrious). Chosen per call via `model`.
     imagegen_sdxl_enabled: bool = False
     imagegen_sdxl_url: str = "http://127.0.0.1:8091"
+    # Third image service (ops/imagegen-krea: LUSTIFY V10 on Krea 2 Turbo via mflux). Model id: lustify.
+    imagegen_krea_enabled: bool = False
+    imagegen_krea_url: str = "http://127.0.0.1:8092"
     # Images page (talk to the image models directly, no chat model): where finished PNGs are saved.
     imagelab_output_dir: str = str(Path.home() / "Projects" / "AtomImages")
 

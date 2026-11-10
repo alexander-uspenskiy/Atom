@@ -84,9 +84,14 @@ SCHEMA: list[dict[str, Any]] = [
     {"key": "imagegen_max_per_run", "label": "Max images per run", "group": "Image generation", "type": "number",
      "min": 1, "max": 20, "step": 1, "help": "Per agent run or chat turn, so a retry loop cannot tie up the machine."},
     {"key": "imagegen_sdxl_enabled", "label": "Enable SDXL models", "group": "Image generation", "type": "boolean",
-     "help": "Lets generate_image pick a named SDXL checkpoint (lustify, cyberrealistic, illustrious) served by "
+     "help": "Lets generate_image pick a named SDXL checkpoint (cyberrealistic, illustrious) served by "
              "ops/imagegen-sdxl. Checkpoints load on demand, one at a time, and unload when idle. Cyberrealistic and "
              "Illustrious expect tag-style prompts; the assistant loads the image-tag-prompts skill for those."},
+    {"key": "imagegen_krea_enabled", "label": "Enable LUSTIFY (Krea 2)", "group": "Image generation", "type": "boolean",
+     "help": "Lets generate_image pick model 'lustify' (LUSTIFY V10, a Krea 2 Turbo finetune, plain English prompts) "
+             "served by ops/imagegen-krea. Loads on demand and unloads when idle; needs about 20 GB while loaded."},
+    {"key": "imagegen_krea_url", "label": "LUSTIFY service URL", "group": "Image generation", "type": "text",
+     "help": "Where ops/imagegen-krea/server.py listens."},
     {"key": "imagegen_sdxl_url", "label": "SDXL service URL", "group": "Image generation", "type": "text",
      "help": "Where ops/imagegen-sdxl/server.py listens."},
     {"key": "imagelab_output_dir", "label": "Images page output folder", "group": "Image generation", "type": "folder",
