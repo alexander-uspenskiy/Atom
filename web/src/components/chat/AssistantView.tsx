@@ -11,11 +11,14 @@ import { Markdown } from "../ui/Markdown";
 import { ApprovalCard } from "../ApprovalCard";
 import { argsPreview, fmtTokens, prettyJSON } from "../../lib/format";
 import { cn } from "../../lib/cn";
+import { MessageActions } from "./MessageActions";
 
 export interface AsstView {
   key: string; reasoning: string; content: string; tools: ToolView[];
   actions: PendingAction[]; pendingActionIds: string[]; runIds: string[];
   stats?: MessageStats | null; streaming?: boolean;
+  /** created_at (seconds) and the user prompt this reply answers, for the timestamp and "Run again" */
+  at?: number; ask?: string;
 }
 
 /** "in 900 (600 cached) · out 80 · 9.2 s · 9.1 tok/s" */
@@ -78,7 +81,7 @@ export function ToolCard({ t }: { t: ToolView }) {
   );
 }
 
-export function AssistantView({ v }: { v: AsstView }) {
+export function AssistantView({ v, onResend, busy }: { v: AsstView; onResend?: (text: string) => void; busy?: boolean }) {
   const stats = statsLine(v.stats);
   const blank = !v.content && !v.reasoning && !v.tools.length && !v.actions.length && !v.runIds.length && !v.pendingActionIds.length;
   return (
@@ -108,6 +111,10 @@ export function AssistantView({ v }: { v: AsstView }) {
           </Link>
         ))}
         {stats && <div className="text-xs tabular-nums text-muted" data-testid="msg-stats">{stats}</div>}
+        {!v.streaming && (v.content || v.at) && (
+          <MessageActions at={v.at} text={v.content} onResend={v.ask && onResend ? () => onResend(v.ask as string) : undefined} disabled={busy}
+            resendTitle="Ask the same question again" />
+        )}
       </div>
     </div>
   );

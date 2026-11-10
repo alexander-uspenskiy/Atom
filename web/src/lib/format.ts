@@ -122,3 +122,11 @@ export function hostOf(url?: string | null): string {
     return url;
   }
 }
+
+/** "Nov 10, 2026, 15:42:07" – full date and time with seconds, for message timestamps. */
+export function fmtFull(ts?: number | null): string {
+  if (!isNum(ts) || ts <= 0) return "";
+  return new Date(ts * 1000).toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+}

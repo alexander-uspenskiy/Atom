@@ -16,6 +16,7 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { AssistantView, type AsstView } from "../components/chat/AssistantView";
 import { Composer, type ChatEffort, type ChatPrefs } from "../components/chat/Composer";
+import { MessageActions } from "../components/chat/MessageActions";
 import { ProjectDialog } from "../components/chat/ProjectDialog";
 import { DropOverlay, ImageGrid, useAttachments, useDropImages } from "../components/chat/Attachments";
 
@@ -57,12 +58,13 @@ function toViews(messages: Message[], actions: Map<string, PendingAction>, summa
   const claimed = new Set<string>();
   const out: ({ kind: "user"; m: Message } | { kind: "asst"; v: AsstView } | { kind: "summary"; text: string; id: string })[] = [];
   let divided = !summary?.text;
+  let lastAsk: Message | undefined;
   for (const m of messages) {
     if (!divided && (m.seq ?? 0) > (summary?.upto_seq ?? 0)) {
       out.push({ kind: "summary", text: summary?.text ?? "", id: "summary" });
       divided = true;
     }
-    if (m.role === "user") out.push({ kind: "user", m });
+    if (m.role === "user") { out.push({ kind: "user", m }); lastAsk = m; }
     else if (m.role === "assistant") {
       const tools: ToolView[] = [];
       const actionIds = new Set<string>();
@@ -87,7 +89,7 @@ function toViews(messages: Message[], actions: Map<string, PendingAction>, summa
       }
       out.push({
         kind: "asst",
-        v: { key: m.id, reasoning: m.reasoning ?? "", content: m.content ?? "", tools, actions: acts, pendingActionIds: missing, runIds: [...runIds], stats: m.stats },
+        v: { key: m.id, reasoning: m.reasoning ?? "", content: m.content ?? "", tools, actions: acts, pendingActionIds: missing, runIds: [...runIds], stats: m.stats, at: m.created_at, ask: lastAsk?.content ?? undefined },
       });
     }
   }
@@ -221,6 +223,8 @@ export default function ChatPage() {
   }, [location, params, convId, nav, send, setParams]);
 
   const stop = () => abortRef.current?.abort();
+  /** Run an earlier prompt again (sent as a new message at the end of the chat). */
+  const resend = (text: string) => { if (!abortRef.current) void send(text); };
   // Abort an in-flight stream when the page unmounts or the conversation changes.
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -369,7 +373,7 @@ export default function ChatPage() {
                     <summary className="cursor-pointer select-none">Earlier messages were summarised to save context. The model sees this summary instead of them.</summary>
                     <div className="mt-2 whitespace-pre-wrap text-fg">{x.text}</div>
                   </details>
-                ) : x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} images={x.m.images} /> : <AssistantView key={x.v.key} v={x.v} />,
+                ) : x.kind === "user" ? <UserBubble key={x.m.id} text={x.m.content ?? ""} images={x.m.images} at={x.m.created_at} onResend={resend} busy={turn.streaming} /> : <AssistantView key={x.v.key} v={x.v} onResend={resend} busy={turn.streaming} />,
               )}
               {showTurn && (
                 <>
@@ -432,12 +436,13 @@ export default function ChatPage() {
   );
 }
 
-function UserBubble({ text, images }: { text: string; images?: string[] }) {
+function UserBubble({ text, images, at, onResend, busy }: { text: string; images?: string[]; at?: number; onResend?: (t: string) => void; busy?: boolean }) {
   return (
     <div className="flex justify-end" data-testid="user-msg">
       <div className="flex max-w-[85%] flex-col items-end gap-1.5">
         {images && images.length > 0 && <ImageGrid ids={images} className="justify-end" />}
         {text && <div className="whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{text}</div>}
+        {(text || at) && <MessageActions at={at} text={text} onResend={onResend && text ? () => onResend(text) : undefined} disabled={busy} resendTitle="Send this prompt again" className="justify-end" />}
       </div>
     </div>
   );

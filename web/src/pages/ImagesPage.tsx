@@ -12,7 +12,7 @@ import { Button } from "../components/ui/Button";
 import { Field } from "../components/ui/Fields";
 import { Select } from "../components/ui/Select";
 import { cn } from "../lib/cn";
-import { errMsg } from "../lib/format";
+import { errMsg, fmtFull } from "../lib/format";
 import { isImageFile } from "../lib/images";
 import { lsGet, lsSet } from "../lib/storage";
 
@@ -95,7 +95,8 @@ function UserBubble({ item, onRunAgain, busy }: { item: Item; onRunAgain: (i: It
         <div className="whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{item.prompt}</div>
         {b.negative_prompt && <div className="max-w-full truncate text-xs text-muted" title={b.negative_prompt}>negative: {b.negative_prompt}</div>}
         <div className="text-xs text-muted">{item.model}{extras.length > 0 && ` · ${extras.join(" · ")}`}</div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          <time className="mr-1 text-xs tabular-nums text-muted">{fmtFull(item.at / 1000)}</time>
           <button type="button" onClick={() => copyText(item.prompt, toast)} aria-label="Copy prompt" title="Copy this prompt"
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg">
             <Copy className="h-3 w-3" aria-hidden /> Copy prompt
