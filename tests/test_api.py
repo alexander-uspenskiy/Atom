@@ -663,3 +663,22 @@ def test_agent_model_choice(client, svc, fake):
     a = client.post("/api/agents", json={"name": "ares", "model": "arete"}).json()
     assert a["agent"]["model"] == "arete" if "agent" in a else a["model"] == "arete"
     assert client.post("/api/agents", json={"name": "bad", "model": "gpt"}).status_code == 422
+
+
+def test_local_file_preview_is_limited_to_project_folders(client, tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("elsewhere")      # the app data dir is the fixture's tmp_path, so stay out of it
+    folder = tmp_path / "proj"
+    (folder / "generated-images").mkdir(parents=True)
+    img = folder / "generated-images" / "a.png"
+    img.write_bytes(b"\x89PNG fake")
+    (folder / "secret.py").write_text("x = 1")
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"\x89PNG fake")
+    get = lambda p: client.get("/api/local-file", params={"path": str(p)})  # noqa: E731
+    assert get(img).status_code == 404                                   # no project yet
+    client.post("/api/projects", json={"name": "P", "folder": str(folder)})
+    r = get(img)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert get(folder / "secret.py").status_code == 404                  # not a previewable type
+    assert get(outside).status_code == 404                               # outside every project folder
+    assert get(folder / ".." / "outside.png").status_code == 404         # traversal

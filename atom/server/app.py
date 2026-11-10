@@ -586,6 +586,28 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                             headers={"Cache-Control": "public, max-age=31536000, immutable",
                                      "X-Content-Type-Options": "nosniff"})
 
+    # ------------------------------------------------------------------ local file preview
+    PREVIEW_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+                     ".webp": "image/webp", ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+                     ".md": "text/plain; charset=utf-8", ".json": "text/plain; charset=utf-8",
+                     ".csv": "text/plain; charset=utf-8", ".log": "text/plain; charset=utf-8"}
+
+    @app.get("/api/local-file")
+    async def local_file(request: Request, path: str = Query(...)):
+        """Serve a file named in chat for preview. Only previewable types, and only inside a project folder or data/."""
+        svc = svc_of(request)
+        try:
+            p = Path(path).expanduser().resolve()           # resolve() follows symlinks, so links cannot escape
+        except (OSError, RuntimeError):
+            raise NotFound("file not found") from None
+        roots = [svc.settings.effective().data_dir.resolve()]
+        roots += [Path(pr["folder"]).resolve() for pr in svc.projects.list() if pr["folder"]]
+        ctype = PREVIEW_TYPES.get(p.suffix.lower())
+        if not p.is_absolute() or ctype is None or not p.is_file() or not any(p.is_relative_to(r) for r in roots):
+            raise NotFound("file not found, or not previewable")
+        return FileResponse(p, media_type=ctype, content_disposition_type="inline",
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
+
     # ------------------------------------------------------------------ chat
     @app.get("/api/conversations")
     async def list_conversations(request: Request):
