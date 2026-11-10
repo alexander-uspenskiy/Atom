@@ -25,3 +25,15 @@ videos/
 
 # Eval run output (machine-specific; regenerate with python -m evals.run_evals)
 evals/results/
+
+# Defense in depth: model weights, generated images, chat/db files anywhere
+generated-images/
+AtomImages/
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+*.db
+*.sqlite
+*.sqlite3
