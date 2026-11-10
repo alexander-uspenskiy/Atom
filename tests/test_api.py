@@ -682,3 +682,11 @@ def test_local_file_preview_is_limited_to_project_folders(client, tmp_path_facto
     assert get(folder / "secret.py").status_code == 404                  # not a previewable type
     assert get(outside).status_code == 404                               # outside every project folder
     assert get(folder / ".." / "outside.png").status_code == 404         # traversal
+
+
+def test_stop_adopts_external_server(client, svc, monkeypatch):
+    killed = []
+    monkeypatch.setattr(svc.models, "external_pid", lambda p: 4242 if p == "qwen" else None)
+    monkeypatch.setattr("atom.models.os.kill", lambda pid, sig: killed.append(pid))
+    assert client.post("/api/models/qwen/stop").status_code == 200 and killed == [4242]
+    assert client.post("/api/models/arete/stop").status_code == 409

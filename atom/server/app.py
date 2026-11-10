@@ -60,7 +60,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 DIST = ROOT / "web" / "dist"
 
 
@@ -243,8 +243,8 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             if not await svc.models.running(profile):
                 svc.models.start(profile)
         elif action == "stop":
-            if not svc.models.managed(profile):
-                raise Conflict("this server was not started by Atom; stop it in the terminal that runs it")
+            if not svc.models.managed(profile) and svc.models.external_pid(profile) is None:
+                raise Conflict("no llama-server found on this model's port (it may not be running)")
             svc.models.stop(profile)
         elif action == "download":
             svc.models.download(profile)

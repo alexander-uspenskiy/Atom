@@ -51,7 +51,7 @@ Model profiles, each a separate llama-server (`ops/llama-server.sh <profile>`).
 
 - `GET /api/models` → `{"active": "qwen", "models": [ModelInfo]}` (id, label, detail, model, base_url, size_gb, installed, running, managed, download progress).
 - `POST /api/models/{profile}/activate` body `{"start": true}` → make it the default; starts its server if downloaded and not running.
-- `POST /api/models/{profile}/{start|stop|download}` → same payload. Unknown profile/action → 404; not downloaded → 409; stop of a server Atom did not start → 409.
+- `POST /api/models/{profile}/{start|stop|download}` → same payload. Unknown profile/action → 404; not downloaded → 409; stop with no llama-server running or started by Atom → 409 (a server started from a terminal is adopted via its port).
 
 ## Agents (saved configurations of the web agent)
 

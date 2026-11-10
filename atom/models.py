@@ -1,13 +1,16 @@
 """Model registry: which model profiles exist, whether they are downloaded / running, and start/stop/download.
 
 Each profile is its own llama-server (ops/llama-server.sh <profile>) on its own port, so several can be loaded
-at once and an agent can pick one. This module only manages processes Atom started itself; a server started
-from a terminal (ops/start.sh) is reported as running but cannot be stopped from here.
+at once and an agent can pick one. Servers Atom started are tracked directly; one started from a terminal
+(ops/start.sh) is adopted by looking up the llama-server listening on the profile's port, so it can be stopped
+from the dashboard too. Quitting Atom only stops the servers it started itself.
 """
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -85,10 +88,32 @@ class ModelManager:
         self._servers[profile] = subprocess.Popen([str(ROOT / "ops" / "llama-server.sh"), profile], stdout=log,
                                                   stderr=log, cwd=ROOT, start_new_session=True)
 
+    def external_pid(self, profile: str) -> int | None:
+        """PID of a llama-server listening on the profile's port that Atom did not start (e.g. ops/start.sh)."""
+        port = LLM_PROFILES[profile]["port"]
+        try:
+            pids = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"], capture_output=True,
+                                  text=True, timeout=3).stdout.split()
+            for pid in pids:
+                cmd = subprocess.run(["ps", "-o", "command=", "-p", pid], capture_output=True, text=True,
+                                     timeout=3).stdout
+                if "llama-server" in cmd:
+                    return int(pid)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+        return None
+
     def stop(self, profile: str) -> None:
         proc = self._servers.pop(profile, None)
         if proc is not None and proc.poll() is None:
             proc.terminate()
+            return
+        pid = self.external_pid(profile)       # adopt a server started from a terminal
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
 
     async def list(self) -> list[dict[str, Any]]:
         active = self._settings().llm_profile
@@ -96,10 +121,12 @@ class ModelManager:
         out = []
         for (k, p), up in zip(LLM_PROFILES.items(), health):
             starting = self.managed(k) and not up
+            # A server started outside the dashboard is still controllable (stop works via its port).
+            controllable = self.managed(k) or (up and await asyncio.to_thread(self.external_pid, k) is not None)
             out.append({"id": k, "label": p["label"], "detail": p["detail"], "model": p["alias"],
                         "base_url": f"http://127.0.0.1:{p['port']}/v1", "size_gb": p["size_gb"],
                         "installed": self.installed(k), "running": up, "starting": starting,
-                        "managed": self.managed(k), "active": k == active, "download": self.download_state(k)})
+                        "managed": controllable, "active": k == active, "download": self.download_state(k)})
         return out
 
     def shutdown(self) -> None:
