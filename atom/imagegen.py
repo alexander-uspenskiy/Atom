@@ -5,6 +5,7 @@ dependencies stay out of Atom, and so the model is only in memory while images a
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 import shutil
@@ -63,10 +64,53 @@ def backend_url(s: Settings, model: str | None) -> str:
     return s.imagegen_sdxl_url
 
 
+class _Queue:
+    """One image render at a time across every caller (chat tool, agents, Image Lab) and every image service.
+    Renders are GPU- and memory-heavy, so overlapping them makes each one slower and can push the machine into swap.
+    asyncio.Lock wakes waiters in FIFO order; a caller cancelled while waiting simply leaves the queue."""
+
+    def __init__(self) -> None:
+        self._locks: dict[int, asyncio.Lock] = {}     # one lock per event loop (tests run several loops)
+        self.active = 0
+        self.waiting = 0
+
+    def _lock(self) -> asyncio.Lock:
+        return self._locks.setdefault(id(asyncio.get_running_loop()), asyncio.Lock())
+
+    async def run(self, coro_fn):
+        lock = self._lock()
+        self.waiting += 1
+        try:
+            await lock.acquire()
+        finally:
+            self.waiting -= 1
+        self.active += 1
+        try:
+            return await coro_fn()
+        finally:
+            self.active -= 1
+            lock.release()
+
+    def snapshot(self) -> dict:
+        return {"running": self.active, "queued": self.waiting}
+
+
+QUEUE = _Queue()
+
+
 async def generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int | None = None,
                    model: str | None = None, negative_prompt: str | None = None, steps: int | None = None,
                    cfg: float | None = None, sampler: str | None = None, image_b64: str | None = None,
                    strength: float | None = None) -> GeneratedImage:
+    """Queue behind any render already in progress, then render."""
+    return await QUEUE.run(lambda: _generate(s, prompt, size, seed, model, negative_prompt, steps, cfg, sampler,
+                                             image_b64, strength))
+
+
+async def _generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int | None = None,
+                    model: str | None = None, negative_prompt: str | None = None, steps: int | None = None,
+                    cfg: float | None = None, sampler: str | None = None, image_b64: str | None = None,
+                    strength: float | None = None) -> GeneratedImage:
     prompt = (prompt or "").strip()
     if not prompt:
         raise ImageGenError("prompt is empty")

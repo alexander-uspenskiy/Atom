@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
+from .. import imagegen
 from .. import stats as stats_mod
 from ..assistant import Assistant
 from ..config import LLM_PROFILES, ROOT
@@ -60,7 +61,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.8.1"
+VERSION = "0.9.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -191,6 +192,7 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         return {"version": VERSION,
                 "llm": {"healthy": healthy, "profile": eff.llm_profile, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,
                         "slots": [{**s, "role": roles.get(s["id"], "other")} for s in slots]},
+                "images": imagegen.QUEUE.snapshot(),
                 "runs": {"running": svc.run_manager.running_ids(), "queued": svc.run_manager.queued_count(),
                          "max_concurrent": eff.max_concurrent_runs},
                 "scheduler": {"running": bool(svc.scheduler.sched and svc.scheduler.sched.running),

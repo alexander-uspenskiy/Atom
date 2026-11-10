@@ -8,6 +8,7 @@ export interface LlmSlot { id: number; busy: boolean; n_ctx?: number; role?: str
 export interface Status {
   version?: string;
   llm?: { healthy?: boolean; profile?: string; vision?: boolean; base_url?: string; model?: string; slots?: LlmSlot[] };
+  images?: { running?: number; queued?: number };
   runs?: { running?: string[]; queued?: number; max_concurrent?: number };
   scheduler?: { running?: boolean; jobs?: number };
   pending_actions?: number;

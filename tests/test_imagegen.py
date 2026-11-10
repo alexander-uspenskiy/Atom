@@ -332,3 +332,57 @@ def test_client_sends_image_and_strength_only_when_given(monkeypatch):
     assert sent["url"].endswith(":8092/v1/images/generations") and sent["body"]["image"] == "QUJD" and sent["body"]["strength"] == 0.4
     asyncio.run(imagegen.generate(s, "a fox", model="lustify"))
     assert "image" not in sent["body"] and "strength" not in sent["body"]
+
+
+def test_renders_are_queued_one_at_a_time_in_order(monkeypatch):
+    """Concurrent generate() calls (chat tool, agents, Image Lab) must run strictly one after another, FIFO."""
+    import asyncio
+    from atom import imagegen
+
+    events: list[str] = []
+
+    async def fake(s, prompt, *a, **k):
+        events.append(f"start {prompt}")
+        assert imagegen.QUEUE.snapshot()["running"] == 1
+        await asyncio.sleep(0.05)
+        events.append(f"end {prompt}")
+        return prompt
+
+    monkeypatch.setattr(imagegen, "_generate", fake)
+
+    async def main():
+        tasks = []
+        for p in ("a", "b", "c"):
+            tasks.append(asyncio.create_task(imagegen.generate(None, p)))
+            await asyncio.sleep(0)                      # let each one reach the queue in order
+        await asyncio.sleep(0.01)
+        assert imagegen.QUEUE.snapshot() == {"running": 1, "queued": 2}
+        assert await asyncio.gather(*tasks) == ["a", "b", "c"]
+
+    asyncio.run(main())
+    assert events == ["start a", "end a", "start b", "end b", "start c", "end c"]
+    assert imagegen.QUEUE.snapshot() == {"running": 0, "queued": 0}
+
+
+def test_cancelled_waiter_leaves_queue(monkeypatch):
+    import asyncio
+    from atom import imagegen
+
+    async def fake(s, prompt, *a, **k):
+        await asyncio.sleep(0.05)
+        return prompt
+
+    monkeypatch.setattr(imagegen, "_generate", fake)
+
+    async def main():
+        first = asyncio.create_task(imagegen.generate(None, "a"))
+        await asyncio.sleep(0)
+        second = asyncio.create_task(imagegen.generate(None, "b"))
+        await asyncio.sleep(0.01)
+        second.cancel()
+        await asyncio.gather(second, return_exceptions=True)
+        assert imagegen.QUEUE.snapshot() == {"running": 1, "queued": 0}
+        assert await first == "a"
+        assert await imagegen.generate(None, "c") == "c"          # lock still usable afterwards
+
+    asyncio.run(main())

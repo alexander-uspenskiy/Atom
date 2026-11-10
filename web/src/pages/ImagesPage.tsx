@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Link } from "react-router-dom";
 import { Copy, Dices, FolderOpen, Image as ImageIcon, ImagePlus, Loader2, RotateCcw, Send, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { api, localFileUrl } from "../api/client";
-import { useImageModels } from "../api/hooks";
+import { useImageModels, useStatus } from "../api/hooks";
 import { useToast } from "../components/ui/Toast";
 import type { ImageLabBody, ImageLabResult, ImageModel } from "../api/types";
 import { DropOverlay, useDropImages } from "../components/chat/Attachments";
@@ -113,6 +113,7 @@ function UserBubble({ item, onRunAgain, busy }: { item: Item; onRunAgain: (i: It
 
 function ResultBubble({ item, onReuse, onSeed, onUseAsInput, onRunAgain, busy }: { item: Item; onReuse: (i: Item) => void; onSeed: (seed: number) => void; onUseAsInput?: (path: string) => void; onRunAgain: (i: Item) => void; busy: boolean }) {
   const toast = useToast();
+  const queued = (useStatus().data?.images?.queued ?? 0) > 0;   // another render (e.g. from chat) holds the single image slot
   const r = item.result;
   return (
     <div className="flex gap-2.5" data-testid="image-result">
@@ -123,7 +124,7 @@ function ResultBubble({ item, onReuse, onSeed, onUseAsInput, onRunAgain, busy }:
         {item.status === "pending" && (
           <p className="flex items-center gap-2 text-sm text-muted">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            Generating with {item.model}… <Elapsed since={item.at} />
+            {queued ? "Queued behind another image…" : `Generating with ${item.model}…`} <Elapsed since={item.at} />
             <span className="text-xs">(the first image after switching models also loads the checkpoint)</span>
           </p>
         )}
