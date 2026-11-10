@@ -125,6 +125,9 @@ class Database:
             self.conn.execute("ALTER TABLE agents ADD COLUMN workdir TEXT")
         if "model" not in cols:
             self.conn.execute("ALTER TABLE agents ADD COLUMN model TEXT")
+        if "state" not in cols:
+            self.conn.execute("ALTER TABLE agents ADD COLUMN state TEXT")
+            self.conn.execute("ALTER TABLE agents ADD COLUMN state_updated_at REAL")
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(conversations)")}
         if "project_id" not in cols:
             self.conn.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")

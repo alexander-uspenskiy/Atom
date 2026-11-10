@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { invalidate, useModels, useSkills, useTools } from "../api/hooks";
 import type { Agent, AgentInput, Effort, Thinking } from "../api/types";
-import { errMsg } from "../lib/format";
+import { errMsg, fmtRelative } from "../lib/format";
 import { Button } from "./ui/Button";
 import { Dialog } from "./ui/Dialog";
 import { ChipsInput, Field, MultiSelect } from "./ui/Fields";
@@ -48,6 +48,32 @@ const blank: AgentInput = {
   name: "", description: "", instructions: "", start_url: null, allowed_domains: [], allow_private: false,
   tools: null, skills: [], memory_scope: "agent", thinking: "inherit", effort: "inherit", max_steps: null, temperature: null, profile: null, workdir: null, model: null,
 };
+
+/** The agent's private run-to-run note (set by its set_state tool). Saved independently of the main form. */
+function AgentStatePanel({ agent }: { agent: Agent }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const q = useQuery({ queryKey: ["agent-state", agent.id], queryFn: () => api.agentState(agent.id) });
+  const [text, setText] = useState("");
+  useEffect(() => { if (q.data) setText(q.data.text); }, [q.data]);
+  const save = useMutation({
+    mutationFn: (t: string) => api.setAgentState(agent.id, t),
+    onSuccess: (s) => { qc.setQueryData(["agent-state", agent.id], s); toast.success(s.text ? "State saved" : "State cleared"); },
+    onError: (e) => toast.error(errMsg(e)),
+  });
+  const max = q.data?.max_chars ?? 2000;
+  const dirty = (q.data?.text ?? "") !== text.trim();
+  return (
+    <Field label="State (carried to this agent's next run)" htmlFor="ag-state"
+      hint={`The agent rewrites this itself with set_state (last status, what it already checked). ${q.data?.updated_at ? `Updated ${fmtRelative(q.data.updated_at)}.` : "Empty."} ${text.length}/${max}`}>
+      <textarea id="ag-state" className="input mono h-24 resize-y" maxLength={max} value={text} onChange={(e) => setText(e.target.value)} placeholder="(empty)" />
+      <div className="mt-1.5 flex justify-end gap-2">
+        <Button size="sm" disabled={save.isPending || !(q.data?.text)} onClick={() => { setText(""); save.mutate(""); }}>Clear</Button>
+        <Button size="sm" variant="primary" loading={save.isPending} disabled={!dirty} onClick={() => save.mutate(text)}>Save state</Button>
+      </div>
+    </Field>
+  );
+}
 
 export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: () => void; agent?: Agent | null }) {
   const qc = useQueryClient();
@@ -142,6 +168,8 @@ export function AgentForm({ open, onClose, agent }: { open: boolean; onClose: ()
             />
           </Field>
         </div>
+
+        {agent && <AgentStatePanel agent={agent} />}
 
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Memory scope" htmlFor="ag-mem">

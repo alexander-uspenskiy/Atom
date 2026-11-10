@@ -50,7 +50,7 @@ class Services:
                                        self.memory, self.settings, self.bus)
         self.agent_runner = Agent(eff, self.llm, self.runs, self.bus, skills=self.skills, memory=self.memory,
                                   actions=self.executor, variables=self.variables,
-                                  uploads=self.uploads)
+                                  uploads=self.uploads, agents=self.agents)
         self.run_manager = RunManager(self.settings, self.runs, self.schedules, self.agent_runner, self.bus)
         self.scheduler.runs = self.run_manager
         self.notifier = RunNotifier(self)

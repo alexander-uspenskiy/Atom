@@ -162,6 +162,26 @@ def test_update_memory_replaces_own_memory_and_remember_dedupes(client, fake, si
     assert client.get("/api/memories?scope=global").json()[0]["content"] == "global fact"
 
 
+def test_agent_state_roundtrip_and_injection(client, fake, site):
+    agent = make_local_agent(client, tools=["read_text"])      # state works even with a restricted tool list
+    url = f"/api/agents/{agent['id']}/state"
+    assert client.get(url).json()["text"] == ""
+    fake.push({"calls": [("set_state", {"text": "last seen: msg 42"})]}, DONE())
+    rid = client.post(f"/api/agents/{agent['id']}/run", json={"task": "x", "start_url": site.base + "/"}).json()["run_id"]
+    wait_run(client, rid)
+    st = client.get(url).json()
+    assert st["text"] == "last seen: msg 42" and st["updated_at"]
+    fake.calls.clear()
+    fake.push(DONE())
+    rid = client.post(f"/api/agents/{agent['id']}/run", json={"task": "y", "start_url": site.base + "/"}).json()["run_id"]
+    wait_run(client, rid)
+    assert "last seen: msg 42" in fake.calls[0]["messages"][1]["content"]
+    assert client.put(url, json={"text": "x" * 2001}).status_code == 422
+    assert client.put(url, json={"text": "edited"}).json()["text"] == "edited"
+    assert client.delete(url).json()["text"] == ""
+    assert client.get("/api/agents/nope/state").status_code == 404
+
+
 def test_skills_crud_and_use_skill(client, fake, site):
     sk = client.post("/api/skills", json={"name": "read-staff", "description": "How to read the staff table",
                                           "when_to_use": "staff questions", "body": "# Steps\n1. Open /staff\n2. read_text"})

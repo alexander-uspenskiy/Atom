@@ -63,6 +63,8 @@ Model profiles, each a separate llama-server (`ops/llama-server.sh <profile>`).
   "thinking": "inherit", "effort": "inherit", "max_steps": null, "temperature": null, "profile": null,
   "is_default": false, "created_at": 0, "updated_at": 0 }
 ```
+`GET/PUT/DELETE /api/agents/{id}/state` — the agent's private run-to-run note (`{text, updated_at, max_chars}`; PUT body `{text}`, max 2000 chars, DELETE clears). Agents write it with the `set_state` tool and get it back at the start of the next run.
+
 `tools`: null = all tools, else array of tool names. `memory_scope`: `none | global | agent` (default `agent`: reads global + the agent's own memories, writes only its own; agents get `remember`, `update_memory`, `recall` unless `none`).
 `model`: null (use the default) or a model profile id (`qwen | arete | uncensored`); `thinking`: `inherit | off | auto | on`; `effort`: `inherit | low | medium | xhigh`.
 

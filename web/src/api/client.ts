@@ -1,5 +1,5 @@
 import type {
-  Agent, AgentInput, ChatBody, ChatEvent, CompactResult, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
+  Agent, AgentInput, AgentState, ChatBody, ChatEvent, CompactResult, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
   ImageLabBody, ImageLabModels, ImageLabResult, UploadInfo, ModelsPayload, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
@@ -76,6 +76,8 @@ export const api = {
   agents: () => req<Agent[]>("GET", "/agents"),
   createAgent: (a: AgentInput) => req<Agent>("POST", "/agents", a),
   updateAgent: (id: string, a: AgentInput) => req<Agent>("PUT", `/agents/${encodeURIComponent(id)}`, a),
+  agentState: (id: string) => req<AgentState>("GET", `/agents/${encodeURIComponent(id)}/state`),
+  setAgentState: (id: string, text: string) => req<AgentState>("PUT", `/agents/${encodeURIComponent(id)}/state`, { text }),
   deleteAgent: (id: string) => req<void>("DELETE", `/agents/${encodeURIComponent(id)}`),
   tools: () => req<ToolInfo[]>("GET", "/tools"),
   chatTools: () => req<ToolInfo[]>("GET", "/chat/tools"),

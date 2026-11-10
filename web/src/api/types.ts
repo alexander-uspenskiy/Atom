@@ -25,6 +25,8 @@ export interface SettingsResponse {
   schema: SettingField[];
 }
 
+export interface AgentState { text: string; updated_at: number | null; max_chars: number }
+
 export interface Agent {
   id: string; name: string; description?: string | null; instructions?: string | null;
   start_url?: string | null; allowed_domains?: string[] | null; allow_private?: boolean;

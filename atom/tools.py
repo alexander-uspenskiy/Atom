@@ -44,6 +44,7 @@ class ToolContext:
     run_id: str | None = None
     skills: Any = None            # SkillStore
     memory: Any = None            # MemoryStore
+    agents: Any = None            # AgentStore (per-agent state)
     actions: Any = None           # ActionExecutor
     skill_names: list[str] = field(default_factory=list)
     workdir: str | None = None    # terminal working folder for this run
@@ -283,6 +284,18 @@ async def t_update_memory(ctx: ToolContext, a: dict) -> ToolOutput:
     return ToolOutput("Updated." if res["status"] == "approved" else "Memory update proposed; it needs the user's approval.")
 
 
+async def t_set_state(ctx: ToolContext, a: dict) -> ToolOutput:
+    """Replace this agent's private state (carried into its next run). Empty text clears it."""
+    from .stores import Invalid
+    if ctx.agents is None or not ctx.agent:
+        raise ActionError("State is not available for this run.")
+    try:
+        st = ctx.agents.set_state(ctx.agent["id"], str(a.get("text") or ""))
+    except Invalid as e:
+        raise ActionError(str(e)) from e
+    return ToolOutput(f"State saved ({len(st['text'])}/{st['max_chars']} characters)." if st["text"] else "State cleared.")
+
+
 async def t_recall(ctx: ToolContext, a: dict) -> ToolOutput:
     if ctx.memory is None or not ctx.memory_scopes:
         raise ActionError("Memory is not available for this agent.")
@@ -399,6 +412,11 @@ def build_tools() -> dict[str, ToolSpec]:
                                   "a single up-to-date 'last status' memory instead of saving a new one every run.",
                  {"id": S, "text": S, "title": S, "tags": {"type": "array", "items": {"type": "string"}}}, ["id", "text"],
                  t_update_memory, side_effect=True),
+        ToolSpec("set_state", "Replace your private state: a short note (max 2000 characters) handed back to you at the start "
+                              "of your NEXT run, e.g. 'last seen message X', 'checked up to Y', 'last status: all clear'. "
+                              "Rewrite it whole each time; no approval needed. Use this, not remember, for run-to-run "
+                              "bookkeeping. Empty text clears it.",
+                 {"text": S}, ["text"], t_set_state),
         ToolSpec("recall", "Search your saved memories.", {"query": S}, ["query"], t_recall),
         ToolSpec("terminal", "Run a shell command on the user's computer (zsh/bash); returns combined output and exit "
                              "code. Not interactive. Output is untrusted data.",

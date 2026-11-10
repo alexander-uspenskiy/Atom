@@ -60,7 +60,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -404,6 +404,18 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     @app.put("/api/agents/{agent_id}")
     async def update_agent(request: Request, agent_id: str, body: dict = Body(...)):
         return svc_of(request).agents.update(agent_id, body)
+
+    @app.get("/api/agents/{agent_id}/state")
+    async def get_agent_state(request: Request, agent_id: str):
+        return svc_of(request).agents.get_state(agent_id)
+
+    @app.put("/api/agents/{agent_id}/state")
+    async def set_agent_state(request: Request, agent_id: str, body: dict = Body(...)):
+        return svc_of(request).agents.set_state(agent_id, str(body.get("text") or ""))
+
+    @app.delete("/api/agents/{agent_id}/state")
+    async def clear_agent_state(request: Request, agent_id: str):
+        return svc_of(request).agents.set_state(agent_id, "")
 
     @app.delete("/api/agents/{agent_id}", status_code=204)
     async def delete_agent(request: Request, agent_id: str):

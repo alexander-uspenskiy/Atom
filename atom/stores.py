@@ -26,6 +26,7 @@ class Conflict(ValueError):
 THINKING = ("inherit", "off", "auto", "on")
 EFFORT = ("inherit", "low", "medium", "xhigh")
 MEM_SCOPE = ("none", "global", "agent")
+STATE_MAX = 2000                  # characters of per-agent state
 
 
 class AgentStore:
@@ -152,6 +153,21 @@ class AgentStore:
         sets = ",".join(f"{k}=?" for k in c)
         self.db.execute(f"UPDATE agents SET {sets} WHERE id=?", [*c.values(), agent_id])
         return self.get(agent_id)
+
+    # ---- per-agent state: a small private note the agent rewrites each run (no approval, always injected) ----
+    def get_state(self, agent_id: str) -> dict:
+        self.get(agent_id)
+        r = self.db.one("SELECT state, state_updated_at FROM agents WHERE id=?", (agent_id,))
+        return {"text": r["state"] or "", "updated_at": r["state_updated_at"], "max_chars": STATE_MAX}
+
+    def set_state(self, agent_id: str, text: str) -> dict:
+        self.get(agent_id)
+        text = (text or "").strip()
+        if len(text) > STATE_MAX:
+            raise Invalid(f"state is {len(text)} characters; the limit is {STATE_MAX}. Condense it.")
+        self.db.execute("UPDATE agents SET state=?, state_updated_at=? WHERE id=?",
+                        (text or None, now() if text else None, agent_id))
+        return self.get_state(agent_id)
 
     def delete(self, agent_id: str) -> None:
         a = self.get(agent_id)
