@@ -352,7 +352,7 @@ def build_tools() -> dict[str, ToolSpec]:
         ToolSpec("generate_image", "Create an image from a text description with a local model (takes ~10-60 s). "
                                    "Returns the file path and shows you the result so you can verify it. Describe "
                                    "subject, setting, style and lighting concretely in English (tags for the "
-                                   "illustrious and pony models, see `model`).",
+                                   "illustrious and cyberrealistic models, see `model`).",
                  {"prompt": S, "size": {"type": "string", "enum": list(_imagegen.SIZES)},
                   "seed": {"type": "integer"},
                   "model": {"type": "string", "description": _imagegen.MODEL_HELP},

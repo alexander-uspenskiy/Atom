@@ -8,7 +8,7 @@ freed after IMAGEGEN_SDXL_IDLE_S seconds without use. One image at a time; calle
     cd ops/imagegen-sdxl && uv run python server.py          # http://127.0.0.1:8091
 
 POST /v1/images/generations   {"prompt": "...", "model": "illustrious", "size": "1024x1024", "seed": 1,
-                               "steps": 28, "cfg": 5.5, "negative_prompt": "..."}
+                               "steps": 28, "cfg": 5.5, "sampler": "euler_a", "negative_prompt": "..."}
     -> {"data": [{"path": "<abs png>", "preview_path": "<abs jpg>", "model": "illustrious", "seed": 1,
                   "width": 1024, "height": 1024, "seconds": 41.2}]}
 GET  /v1/models               -> registry with style (natural|tags) and whether the checkpoint file is present
@@ -27,7 +27,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -43,6 +43,7 @@ HOST = os.environ.get("IMAGEGEN_SDXL_HOST", "127.0.0.1")
 PORT = int(os.environ.get("IMAGEGEN_SDXL_PORT", "8091"))
 MIN_SIDE, MAX_SIDE, MAX_PIXELS = 512, 1536, 1_700_000
 PREVIEW_SIDE = 768
+SAMPLERS = ("euler_a", "dpmpp_2m_karras")
 CLIP_CHUNK = 75        # CLIP reads 77 tokens including start/end; longer prompts are encoded in chunks
 
 app = FastAPI(title="atom-imagegen-sdxl")
@@ -177,13 +178,13 @@ def _encode(pipe, text: str):
 
 
 def _generate(name: str, cfg: dict, prompt: str, negative: str, w: int, h: int, seed: int, steps: int,
-              guidance: float) -> tuple[Path, float]:
+              guidance: float, sampler: str | None = None) -> tuple[Path, float]:
     global _pipe, _loaded_name
     t0 = time.monotonic()
     if _loaded_name != name:
         _unload()                                  # one checkpoint resident at a time
         _pipe, _loaded_name = _load(name, cfg), name
-    _set_sampler(_pipe, cfg.get("sampler", "dpmpp_2m_karras"))
+    _set_sampler(_pipe, sampler or cfg.get("sampler", "dpmpp_2m_karras"))
     pos, pos_pooled, torch = _encode(_pipe, prompt)
     neg, neg_pooled, _ = _encode(_pipe, negative)
     n = max(len(pos), len(neg))                    # both sides must have the same sequence length
@@ -212,6 +213,7 @@ class GenRequest(BaseModel):
     seed: int | None = None
     steps: int | None = Field(default=None, ge=1, le=60)
     cfg: float | None = Field(default=None, ge=1, le=15)
+    sampler: Literal["euler_a", "dpmpp_2m_karras"] | None = None
     negative_prompt: str | None = Field(default=None, max_length=2000)
     n: int = Field(default=1, ge=1, le=1)      # accepted for OpenAI compatibility; one image per call
 
@@ -229,7 +231,8 @@ async def generations(req: GenRequest) -> dict:
     guidance = req.cfg or float(cfg.get("cfg", 5.5))
     async with _lock:                                   # one image at a time; callers queue
         try:
-            path, secs = await asyncio.to_thread(_generate, name, cfg, prompt, negative, w, h, seed, steps, guidance)
+            path, secs = await asyncio.to_thread(_generate, name, cfg, prompt, negative, w, h, seed, steps, guidance,
+                                                 req.sampler)
         except RuntimeError as e:
             raise HTTPException(503, str(e)) from e
         _last_used = time.monotonic()
@@ -241,9 +244,12 @@ async def generations(req: GenRequest) -> dict:
 @app.get("/v1/models")
 async def models() -> dict:
     registry = load_registry()
-    return {"default": registry["default"], "data": [
+    return {"default": registry["default"], "samplers": list(SAMPLERS), "data": [
         {"id": k, "style": v.get("style", "natural"), "about": v.get("about", ""),
-         "present": (MODELS_DIR / v["file"]).is_file(), "loaded": k == _loaded_name}
+         "present": (MODELS_DIR / v["file"]).is_file(), "loaded": k == _loaded_name,
+         "defaults": {"steps": int(v.get("steps", 28)), "cfg": float(v.get("cfg", 5.5)),
+                      "sampler": v.get("sampler", "dpmpp_2m_karras"), "prefix": v.get("prefix", ""),
+                      "negative": v.get("negative", "")}}
         for k, v in registry["models"].items()]}
 
 

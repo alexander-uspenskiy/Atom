@@ -6,6 +6,7 @@ checkpoints (see ops/imagegen-sdxl/README.md).
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ SERVER = Path(__file__).resolve().parent.parent / "ops" / "imagegen-sdxl" / "ser
 def sdxl(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("imagegen_sdxl_server", SERVER)
     mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, mod)         # pydantic resolves the request model's annotations here
     spec.loader.exec_module(mod)
     monkeypatch.setattr(mod, "MODELS_DIR", tmp_path / "models")
     monkeypatch.setattr(mod, "OUT_DIR", tmp_path / "out")
@@ -30,21 +32,21 @@ def words(s: str) -> int:             # fake tokenizer: one token per word
     return len(s.split())
 
 
-def test_registry_lists_the_four_models(sdxl):
+def test_registry_lists_the_three_models(sdxl):
     reg = sdxl.load_registry()
-    assert set(reg["models"]) == {"juggernaut", "realvis", "pony", "illustrious"} and reg["default"] == "juggernaut"
+    assert set(reg["models"]) == {"lustify", "cyberrealistic", "illustrious"} and reg["default"] == "lustify"
     assert {k: v["style"] for k, v in reg["models"].items()} == {
-        "juggernaut": "natural", "realvis": "natural", "pony": "tags", "illustrious": "tags"}
-    assert reg["models"]["pony"]["prefix"].startswith("score_9")
+        "lustify": "natural", "cyberrealistic": "tags", "illustrious": "tags"}
+    assert reg["models"]["cyberrealistic"]["prefix"].startswith("score_9")
     for cfg in reg["models"].values():                  # defaults only improve quality, nothing filters content
         assert "nsfw" not in cfg["negative"].lower()
 
 
 def test_resolve_model(sdxl):
     reg = sdxl.load_registry()
-    assert sdxl.resolve_model(reg, None)[0] == "juggernaut"
-    assert sdxl.resolve_model(reg, " Pony ")[0] == "pony"
-    assert sdxl.resolve_model(reg, "sdxl")[0] == "juggernaut"
+    assert sdxl.resolve_model(reg, None)[0] == "lustify"
+    assert sdxl.resolve_model(reg, " CyberRealistic ")[0] == "cyberrealistic"
+    assert sdxl.resolve_model(reg, "sdxl")[0] == "lustify"
     with pytest.raises(HTTPException) as e:
         sdxl.resolve_model(reg, "dalle")
     assert e.value.status_code == 404 and "illustrious" in e.value.detail
@@ -78,25 +80,26 @@ def test_pack_chunks_breaks_between_tags_only(sdxl):
 def test_endpoint_selects_model_applies_defaults_and_reports_it(sdxl, tmp_path, monkeypatch):
     seen = {}
 
-    def fake_generate(name, cfg, prompt, negative, w, h, seed, steps, guidance):
-        seen.update(name=name, prompt=prompt, negative=negative, size=(w, h), seed=seed, steps=steps, cfg=guidance)
+    def fake_generate(name, cfg, prompt, negative, w, h, seed, steps, guidance, sampler=None):
+        seen.update(sampler=sampler, name=name, prompt=prompt, negative=negative, size=(w, h), seed=seed, steps=steps, cfg=guidance)
         png = tmp_path / "x.png"
         png.write_bytes(b"png")
         return png, 1.5
 
     monkeypatch.setattr(sdxl, "_generate", fake_generate)
     with TestClient(sdxl.app) as c:
-        r = c.post("/v1/images/generations", json={"prompt": "1girl, solo", "model": "pony", "seed": 5,
+        r = c.post("/v1/images/generations", json={"prompt": "1girl, solo", "model": "cyberrealistic", "seed": 5,
                                                    "negative_prompt": "text, hat", "size": "832x1216"})
         assert r.status_code == 200
         d = r.json()["data"][0]
-        assert d["model"] == "pony" and d["seed"] == 5 and (d["width"], d["height"]) == (832, 1216)
-        assert seen["name"] == "pony" and seen["prompt"].startswith("score_9, score_8_up, score_7_up, 1girl")
+        assert d["model"] == "cyberrealistic" and d["seed"] == 5 and (d["width"], d["height"]) == (832, 1216)
+        assert seen["name"] == "cyberrealistic" and seen["prompt"].startswith("score_9, score_8_up, score_7_up, 1girl")
         assert seen["negative"].endswith("hat") and seen["negative"].count("text") == 1
-        assert seen["steps"] == 28 and seen["cfg"] == 7.0
-        r = c.post("/v1/images/generations", json={"prompt": "a fox", "steps": 12, "cfg": 3.0})
-        assert seen["name"] == "juggernaut" and seen["prompt"] == "a fox" and seen["steps"] == 12 and seen["cfg"] == 3.0
+        assert seen["steps"] == 30 and seen["cfg"] == 5.0
+        r = c.post("/v1/images/generations", json={"prompt": "a fox", "steps": 12, "cfg": 3.0, "sampler": "euler_a"})
+        assert seen["name"] == "lustify" and seen["prompt"] == "a fox" and seen["steps"] == 12 and seen["cfg"] == 3.0 and seen["sampler"] == "euler_a"
         assert c.post("/v1/images/generations", json={"prompt": "x", "model": "nope"}).status_code == 404
+        assert c.post("/v1/images/generations", json={"prompt": "x", "sampler": "ddim"}).status_code == 422
         assert c.post("/v1/images/generations", json={"prompt": "x", "size": "10x10"}).status_code == 422
 
 
@@ -107,9 +110,12 @@ def test_missing_checkpoint_is_a_clear_503(sdxl):
 
 
 def test_models_endpoint_shows_which_checkpoints_are_present(sdxl):
-    (sdxl.MODELS_DIR / "pony-diffusion-v6-xl.safetensors").write_bytes(b"x")
+    (sdxl.MODELS_DIR / "cyberrealistic-pony.safetensors").write_bytes(b"x")
     with TestClient(sdxl.app) as c:
         data = {m["id"]: m for m in c.get("/v1/models").json()["data"]}
-        assert data["pony"]["present"] is True and data["illustrious"]["present"] is False
-        assert data["pony"]["style"] == "tags" and not any(m["loaded"] for m in data.values())
+        assert data["cyberrealistic"]["present"] is True and data["illustrious"]["present"] is False
+        assert data["cyberrealistic"]["style"] == "tags" and not any(m["loaded"] for m in data.values())
+        d = data["cyberrealistic"]["defaults"]
+        assert d["steps"] == 30 and d["sampler"] == "euler_a" and d["prefix"].startswith("score_9") and "score_6" in d["negative"]
+        assert c.get("/v1/models").json()["samplers"] == ["euler_a", "dpmpp_2m_karras"]
         assert c.get("/health").json()["loaded"] is None

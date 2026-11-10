@@ -208,3 +208,20 @@ export interface ModelInfo {
   download: { bytes: number; total: number; percent: number; active: boolean } | null;
 }
 export interface ModelsPayload { active: string; models: ModelInfo[] }
+
+// ---- Images page (talks to the image models directly, no chat model)
+export interface ImageModel {
+  id: string; label: string; backend: "zimage" | "sdxl"; style: "natural" | "tags"; about: string;
+  up: boolean; present: boolean; loaded: boolean;
+  defaults: { steps?: number | null; cfg?: number | null; sampler?: string | null; prefix?: string; negative?: string };
+  supports: { negative: boolean; cfg: boolean; sampler: boolean; steps: [number, number] };
+}
+export interface ImageLabModels {
+  models: ImageModel[]; samplers: string[]; sizes: string[]; output_dir: string;
+  services: Record<"zimage" | "sdxl", { up: boolean; url: string }>;
+}
+export interface ImageLabBody {
+  model: string; prompt: string; size: string; seed?: number | null; steps?: number | null; cfg?: number | null;
+  sampler?: string | null; negative_prompt?: string | null;
+}
+export interface ImageLabResult { path: string; model: string; seed: number; width: number; height: number; seconds: number }

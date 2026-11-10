@@ -89,9 +89,11 @@ class Settings(BaseSettings):
     imagegen_url: str = "http://127.0.0.1:8090"
     imagegen_timeout_s: int = 300    # per image; the first one also loads the model
     imagegen_max_per_run: int = 4    # cap per agent run / chat turn so a loop cannot burn the GPU
-    # Second image service (ops/imagegen-sdxl: Juggernaut / RealVis / Pony / Illustrious). Chosen per call via `model`.
+    # Second image service (ops/imagegen-sdxl: LUSTIFY / CyberRealistic Pony / Illustrious). Chosen per call via `model`.
     imagegen_sdxl_enabled: bool = False
     imagegen_sdxl_url: str = "http://127.0.0.1:8091"
+    # Images page (talk to the image models directly, no chat model): where finished PNGs are saved.
+    imagelab_output_dir: str = str(Path.home() / "Projects" / "AtomImages")
 
     # --- Assistant / memory ---
     auto_approve_assistant_actions: bool = False

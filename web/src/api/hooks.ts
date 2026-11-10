@@ -26,6 +26,8 @@ export const qk = {
   stats: (d: number) => ["stats", d] as const,
 };
 
+export const useImageModels = () =>
+  useQuery({ queryKey: ["imagelab-models"], queryFn: api.imagelabModels, refetchInterval: 15000 });
 export const useStatus = () => useQuery({ queryKey: qk.status, queryFn: api.status, refetchInterval: 15000 });
 export const useModels = (poll: number | false = false) =>
   useQuery({ queryKey: qk.models, queryFn: api.models, refetchInterval: poll });

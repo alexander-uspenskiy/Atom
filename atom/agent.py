@@ -47,7 +47,7 @@ Finishing:
 IMAGE_PROMPT = """
 
 Image generation:
-- generate_image(prompt) makes a picture with a local model and shows it to you. Write the prompt as a concrete English description (subject, setting, style, lighting, colours); keep any text inside the image short. After each image, compare it with what was asked; if something important is wrong or missing, call it again once or twice with a refined prompt, then report the file path of the best one in done(result). The optional `model` argument picks a named SDXL model when it is enabled; illustrious and pony need tag-style prompts, so load the image-tag-prompts skill first."""
+- generate_image(prompt) makes a picture with a local model and shows it to you. Write the prompt as a concrete English description (subject, setting, style, lighting, colours); keep any text inside the image short. After each image, compare it with what was asked; if something important is wrong or missing, call it again once or twice with a refined prompt, then report the file path of the best one in done(result). The optional `model` argument picks a named SDXL model when it is enabled; illustrious and cyberrealistic need tag-style prompts, so load the image-tag-prompts skill first."""
 
 LOOK_PROMPT = """
 

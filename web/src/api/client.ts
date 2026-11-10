@@ -1,7 +1,7 @@
 import type {
   Agent, AgentInput, ChatBody, ChatEvent, CompactResult, ContextUsage, Conversation, ConversationInfo, Project, Memory, MemoryInput, PendingAction,
   RunDetail, RunList, RunOverrides, RunSummary, Schedule, SchedulePreview, ScheduleInput, ScheduleTrigger,
-  UploadInfo, ModelsPayload, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
+  ImageLabBody, ImageLabModels, ImageLabResult, UploadInfo, ModelsPayload, ConnectorsPayload, McpServerConfig, McpStatus, Variable, VariableIn, SettingsResponse, SettingValue, Skill, StatsSummary, Status, ToolInfo,
 } from "./types";
 import { parseJSON, readSSE } from "./sse";
 
@@ -59,7 +59,12 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 export interface RunFilters { status?: string; agent_id?: string; schedule_id?: string; q?: string; limit?: number; offset?: number }
 export interface MemoryFilters { q?: string; scope?: string; pinned?: boolean; status?: string; limit?: number }
 
+/** Preview URL for a file the backend may show (images in the output folder, data/, project folders). */
+export const localFileUrl = (path: string) => `/api/local-file?path=${encodeURIComponent(path)}`;
+
 export const api = {
+  imagelabModels: () => req<ImageLabModels>("GET", "/imagelab/models"),
+  imagelabGenerate: (body: ImageLabBody, signal?: AbortSignal) => req<ImageLabResult>("POST", "/imagelab/generate", body, signal),
   status: () => req<Status>("GET", "/status"),
   models: () => req<ModelsPayload>("GET", "/models"),
   activateModel: (id: string) => req<ModelsPayload>("POST", `/models/${id}/activate`, { start: true }),

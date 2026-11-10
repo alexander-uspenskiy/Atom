@@ -23,7 +23,7 @@ if [ -d data/models/z-image-turbo-4bit ] && ! curl -sf http://127.0.0.1:8090/hea
   IMG_PID=$!
 fi
 
-# Optional SDXL service (Juggernaut / RealVis / Pony / Illustrious). Only if a checkpoint is present; see ops/imagegen-sdxl/README.md.
+# Optional SDXL service (LUSTIFY / CyberRealistic Pony / Illustrious). Only if a checkpoint is present; see ops/imagegen-sdxl/README.md.
 if ls data/models/sdxl/*.safetensors >/dev/null 2>&1 && ! curl -sf http://127.0.0.1:8091/health >/dev/null 2>&1; then
   echo "starting SDXL image service (log: logs/imagegen-sdxl.log) ..."
   ops/imagegen-sdxl/run.sh > logs/imagegen-sdxl.log 2>&1 &

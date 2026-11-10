@@ -22,7 +22,7 @@ from ..settings_store import SettingsError
 from ..stores import Conflict, Invalid, NotFound
 from ..uploads import media_type
 from ..tools import build_tools
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class McpServerIn(BaseModel):
@@ -38,6 +38,17 @@ class ConnectorIn(BaseModel):
     type: str
     enabled: bool = True
     config: dict[str, Any] = {}
+
+
+class ImageLabIn(BaseModel):
+    model: str = ""                    # "" / "z-image" = default service, otherwise an SDXL model id
+    prompt: str = Field(min_length=1, max_length=4000)
+    size: str = "1024x1024"
+    seed: int | None = None
+    steps: int | None = Field(default=None, ge=1, le=60)
+    cfg: float | None = Field(default=None, ge=1, le=15)
+    sampler: str | None = None
+    negative_prompt: str | None = Field(default=None, max_length=2000)
 
 
 class VariableIn(BaseModel):
@@ -600,13 +611,28 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             p = Path(path).expanduser().resolve()           # resolve() follows symlinks, so links cannot escape
         except (OSError, RuntimeError):
             raise NotFound("file not found") from None
-        roots = [svc.settings.effective().data_dir.resolve()]
+        eff = svc.settings.effective()
+        roots = [eff.data_dir.resolve(), Path(eff.imagelab_output_dir).expanduser().resolve()]
         roots += [Path(pr["folder"]).resolve() for pr in svc.projects.list() if pr["folder"]]
         ctype = PREVIEW_TYPES.get(p.suffix.lower())
         if not p.is_absolute() or ctype is None or not p.is_file() or not any(p.is_relative_to(r) for r in roots):
             raise NotFound("file not found, or not previewable")
         return FileResponse(p, media_type=ctype, content_disposition_type="inline",
                             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
+
+    # ------------------------------------------------------------------ images page (no chat model)
+    @app.get("/api/imagelab/models")
+    async def imagelab_models(request: Request):
+        from .. import imagelab
+        return await imagelab.models(svc_of(request).settings.effective())
+
+    @app.post("/api/imagelab/generate")
+    async def imagelab_generate(request: Request, body: ImageLabIn):
+        from .. import imagegen, imagelab
+        try:
+            return await imagelab.generate(svc_of(request).settings.effective(), **body.model_dump())
+        except imagegen.ImageGenError as e:
+            raise HTTPException(502, str(e)) from e
 
     # ------------------------------------------------------------------ chat
     @app.get("/api/conversations")

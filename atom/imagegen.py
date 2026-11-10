@@ -16,9 +16,9 @@ import httpx
 from .config import Settings
 
 SIZES = ("1024x1024", "768x768", "1024x768", "768x1024", "1280x720", "720x1280", "512x512", "832x1216", "1216x832")
-MODEL_HELP = ("Omit for the default model (plain English). Named SDXL checkpoints, if enabled: juggernaut (photoreal, "
-              "English), realvis (photoreal portraits, English), illustrious (anime, TAGS), pony (anime/cartoon/furry, "
-              "TAGS). For illustrious and pony call use_skill('image-tag-prompts') first and write comma-separated "
+MODEL_HELP = ("Omit for the default model (plain English). Named SDXL checkpoints, if enabled: lustify (photoreal incl. "
+              "adult content, English), cyberrealistic (photoreal, TAGS), illustrious (anime, TAGS). For "
+              "cyberrealistic and illustrious call use_skill('image-tag-prompts') first and write comma-separated "
               "tags, not sentences. Each switch of model costs 10-30 s to load, so stay on one model per task.")
 NEGATIVE_HELP = "Things to avoid (SDXL models only; sensible defaults are already applied). Same style as the prompt."
 PROMPT_HINT = ("Describe the image in plain concrete English: subject, setting, style, lighting, colours. "
@@ -56,7 +56,8 @@ def backend_url(s: Settings, model: str | None) -> str:
 
 
 async def generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int | None = None,
-                   model: str | None = None, negative_prompt: str | None = None) -> GeneratedImage:
+                   model: str | None = None, negative_prompt: str | None = None, steps: int | None = None,
+                   cfg: float | None = None, sampler: str | None = None) -> GeneratedImage:
     prompt = (prompt or "").strip()
     if not prompt:
         raise ImageGenError("prompt is empty")
@@ -64,10 +65,16 @@ async def generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int 
     body: dict = {"prompt": prompt, "size": size or "1024x1024"}
     if seed is not None:
         body["seed"] = int(seed)
+    if steps:
+        body["steps"] = int(steps)
     if (model or "").strip().lower() not in DEFAULT_MODELS:
         body["model"] = model.strip().lower()
         if negative_prompt and negative_prompt.strip():
             body["negative_prompt"] = negative_prompt.strip()
+        if cfg:
+            body["cfg"] = float(cfg)
+        if sampler:
+            body["sampler"] = sampler
     url = base.rstrip("/") + "/v1/images/generations"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(s.imagegen_timeout_s, connect=5)) as c:
@@ -120,6 +127,22 @@ def save_to_project(img: GeneratedImage, workdir: str | None, prompt: str) -> st
         return f" (could not save into the project folder: {e}; it stays in data/images)"
     img.path = dest
     return " (saved in the project folder)"
+
+
+def save_to_folder(img: GeneratedImage, folder: str | Path, prompt: str, model: str = "") -> str:
+    """Move the full-size PNG into `folder` as <timestamp>-<id>-<model>-<prompt-slug>.png and update img.path.
+    Unlike save_to_project this is the destination itself, created if missing. Raises ImageGenError if it cannot."""
+    dest_dir = Path(folder).expanduser()
+    slug = re.sub(r"[^a-z0-9]+", "-", prompt.lower()).strip("-")[:40].strip("-") or "image"
+    tag = re.sub(r"[^a-z0-9]+", "-", (model or "z-image").lower()).strip("-")
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / f"{img.path.name.rsplit('.', 1)[0]}-{tag}-{slug}.png"
+        shutil.move(str(img.path), dest)
+    except OSError as e:
+        raise ImageGenError(f"could not save into {dest_dir}: {e}") from e
+    img.path = dest
+    return str(dest)
 
 
 async def available(s: Settings) -> bool:

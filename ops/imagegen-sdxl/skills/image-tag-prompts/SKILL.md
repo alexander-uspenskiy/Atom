@@ -1,7 +1,7 @@
 ---
 name: image-tag-prompts
-description: How to write prompts for generate_image with the SDXL models. Tag-style (comma-separated booru tags) for illustrious and pony, plain English for juggernaut and realvis, plus sizes, negatives and the retry loop.
-when_to_use: Before calling generate_image with model=illustrious or model=pony (they ignore sentences), and whenever you pick between the SDXL models. Load it once per task, not per image.
+description: How to write prompts for generate_image with the SDXL models. Tag-style (comma-separated booru tags) for illustrious and cyberrealistic, plain English for lustify, plus sizes, negatives and the retry loop.
+when_to_use: Before calling generate_image with model=illustrious or model=cyberrealistic (they ignore sentences), and whenever you pick between the SDXL models. Load it once per task, not per image.
 enabled: true
 created_by: user
 ---
@@ -13,16 +13,15 @@ created_by: user
 
 | model | use it for | prompt style |
 |---|---|---|
-| `juggernaut` | photoreal, cinematic, general scenes | English phrases |
-| `realvis` | photoreal people and portraits | English phrases |
+| `lustify` (default SDXL) | photoreal people and scenes, including adult content | English phrases |
+| `cyberrealistic` | photoreal, widest content range, best prompt adherence | **tags** (Pony-style) |
 | `illustrious` | anime, illustration, characters | **tags** (Danbooru) |
-| `pony` | anime, cartoon, furry, stylized | **tags** (e-621/Danbooru mix) |
 
 The service already adds each model's quality tags (`masterpiece, best quality` or `score_9, score_8_up, score_7_up`)
 and a sensible negative prompt. **Do not repeat them.** It applies no content filter, so describe exactly what the
 user asked for, no more and no less.
 
-## Tag style (illustrious, pony)
+## Tag style (illustrious, cyberrealistic)
 
 - One comma-separated line of short tags. No sentences, no "a picture of", no filler words. Lowercase.
 - Use spaces inside a tag (`blue eyes`), not underscores, unless a tag only makes sense with them.
@@ -48,15 +47,16 @@ user asked for, no more and no less.
   `explicit`. Without one the model picks by itself, usually safe.
 - Helpful extras: `newest`, `absurdres` (high detail). Skip them if the service prefix is enough.
 
-### pony only
-- Start the tag part with a source tag, right after the service's score prefix: `source_anime`, `source_cartoon`,
-  `source_furry` or `source_pony`. Pick the one that fits the style the user wants.
+### cyberrealistic only
+- It is Pony-based: the service adds the `score_9, score_8_up, score_7_up` prefix. Do not add `source_anime` or
+  `source_cartoon`; this model is photoreal. Photo words help: `photo`, `realistic`, `film grain`, `85mm`, `bokeh`.
 - Rating tag (optional, same rule as above): `rating_safe`, `rating_questionable`, `rating_explicit`.
-- Pony has no artist-name knowledge. Do not use artist tags; describe the style (`flat color, thick outline`).
+- It has no artist-name knowledge. Do not use artist tags; describe the look instead.
 
-## English style (juggernaut, realvis)
+## English style (lustify)
 
-- Short descriptive phrases or one or two plain sentences: subject, setting, light, camera. About 30-60 words.
+- Short descriptive phrases or one or two plain sentences: subject, setting, light, camera. About 30-60 words. State that the subject is an adult
+  (`adult woman`, `woman in her late twenties`).
 - Photo cues work: `35mm photo`, `85mm portrait`, `shallow depth of field`, `golden hour`, `overcast softbox light`,
   `film grain`. Name materials and textures (`worn leather`, `wet asphalt`).
 - Skip the tag spam (`masterpiece, 8k, ultra detailed`). It does little for these models.
@@ -65,7 +65,7 @@ user asked for, no more and no less.
 ## Negative prompt
 
 Defaults are applied per model. Pass `negative_prompt` only for specific problems you can see in the result, in the
-same style as the prompt (tags for illustrious/pony): `watermark`, `extra limbs`, `text`, `cropped`, `blurry background`.
+same style as the prompt (tags for illustrious/cyberrealistic): `watermark`, `extra limbs`, `text`, `cropped`, `blurry background`.
 
 ## Size
 

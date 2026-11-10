@@ -171,9 +171,9 @@ def test_backend_routing_and_disabled_sdxl(svc):
     s = svc.settings.base.model_copy(update={"imagegen_url": "http://z", "imagegen_sdxl_url": "http://x"})
     assert [imagegen.backend_url(s, m) for m in (None, "", "default", "Z-Image")] == ["http://z"] * 4
     with pytest.raises(imagegen.ImageGenError, match="turned off"):
-        imagegen.backend_url(s, "pony")
+        imagegen.backend_url(s, "cyberrealistic")
     s = s.model_copy(update={"imagegen_sdxl_enabled": True})
-    assert imagegen.backend_url(s, "pony") == "http://x"
+    assert imagegen.backend_url(s, "cyberrealistic") == "http://x"
 
 
 def test_tool_spec_offers_model_and_new_sizes():
@@ -185,3 +185,86 @@ def test_tool_spec_offers_model_and_new_sizes():
 def test_sdxl_settings_default_off_and_listed(client):
     vals = client.get("/api/settings").json()["values"]
     assert vals["imagegen_sdxl_enabled"] is False and vals["imagegen_sdxl_url"].endswith(":8091")
+
+
+# ---------------------------------------------------------------- Images page (direct, no chat model)
+@pytest.fixture
+def lab(tmp_path, monkeypatch, client):
+    out = tmp_path / "AtomImages"
+    out.mkdir()                                              # the folder setting only accepts an existing folder
+    r = client.put("/api/settings", json={"values": {"imagelab_output_dir": str(out)}})
+    assert r.status_code == 200, r.text                      # never fall back to writing into the real default folder
+    calls: list[dict] = []
+
+    async def fake_generate(s, prompt, size="1024x1024", seed=None, model=None, negative_prompt=None, steps=None,
+                            cfg=None, sampler=None):
+        calls.append({"prompt": prompt, "size": size, "seed": seed, "model": model, "neg": negative_prompt,
+                      "steps": steps, "cfg": cfg, "sampler": sampler, "sdxl_on": s.imagegen_sdxl_enabled})
+        png = tmp_path / f"gen{len(calls)}.png"
+        png.write_bytes(PNG)
+        return imagegen.GeneratedImage(png, png, seed or 11, 1024, 1024, 2.0)
+
+    monkeypatch.setattr(imagegen, "generate", fake_generate)
+    return out, calls
+
+
+def test_lab_generate_saves_into_output_folder_and_result_is_previewable(client, lab):
+    out, calls = lab
+    r = client.post("/api/imagelab/generate", json={
+        "model": "illustrious", "prompt": "1girl, solo, rain", "size": "832x1216", "seed": 5, "steps": 20,
+        "cfg": 6, "sampler": "euler_a", "negative_prompt": "text"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert calls[0] == {"prompt": "1girl, solo, rain", "size": "832x1216", "seed": 5, "model": "illustrious",
+                        "neg": "text", "steps": 20, "cfg": 6.0, "sampler": "euler_a", "sdxl_on": True}
+    assert d["path"].startswith(str(out)) and d["path"].endswith("-illustrious-1girl-solo-rain.png")
+    assert d["seed"] == 5 and d["model"] == "illustrious" and (out.exists() and len(list(out.glob("*.png"))) == 1)
+    shown = client.get("/api/local-file", params={"path": d["path"]})            # the clickable path works
+    assert shown.status_code == 200 and shown.content == PNG and shown.headers["content-type"] == "image/png"
+
+
+def test_lab_works_with_the_assistant_toggles_off_and_default_model(client, lab):
+    out, calls = lab
+    assert client.get("/api/settings").json()["values"]["imagegen_sdxl_enabled"] is False
+    r = client.post("/api/imagelab/generate", json={"prompt": "a red fox"})
+    assert r.status_code == 200 and r.json()["model"] == "z-image" and "-z-image-a-red-fox.png" in r.json()["path"]
+    assert calls[0]["model"] == "" and calls[0]["sdxl_on"] is True
+
+
+def test_lab_errors_and_preview_stays_sandboxed(client, lab, tmp_path_factory):
+    out, calls = lab
+
+    async def boom(*a, **k):
+        raise imagegen.ImageGenError("checkpoint for 'lustify' not found")
+    import atom.imagegen as ig
+    ig.generate = boom
+    r = client.post("/api/imagelab/generate", json={"model": "lustify", "prompt": "x"})
+    assert r.status_code == 502 and "not found" in r.json()["detail"]
+    assert client.post("/api/imagelab/generate", json={"prompt": ""}).status_code == 422
+    outside = tmp_path_factory.mktemp("outside") / "elsewhere.png"       # not under data/ or the output folder
+    outside.write_bytes(PNG)
+    assert client.get("/api/local-file", params={"path": str(outside)}).status_code == 404
+
+
+def test_lab_models_lists_both_services_with_defaults(client, monkeypatch):
+    from atom import imagelab
+
+    async def fake_get(url):
+        if url.endswith("/health"):
+            return {"ok": True, "loaded": False, "model_present": True}
+        return {"default": "lustify", "samplers": ["euler_a", "dpmpp_2m_karras"], "data": [
+            {"id": "illustrious", "style": "tags", "about": "anime", "present": True, "loaded": False,
+             "defaults": {"steps": 28, "cfg": 5.5, "sampler": "euler_a", "prefix": "masterpiece, ", "negative": "bad"}}]}
+
+    monkeypatch.setattr(imagelab, "_get", fake_get)
+    d = client.get("/api/imagelab/models").json()
+    ids = {m["id"]: m for m in d["models"]}
+    assert list(ids) == ["z-image", "illustrious"] and d["services"]["sdxl"]["up"] and d["samplers"][0] == "euler_a"
+    assert ids["z-image"]["supports"]["negative"] is False and ids["illustrious"]["supports"]["cfg"] is True
+    assert ids["illustrious"]["defaults"]["prefix"] == "masterpiece, " and d["output_dir"].endswith("AtomImages")
+
+
+def test_lab_models_reports_services_down(client):
+    client.put("/api/settings", json={"values": {"imagegen_url": "http://127.0.0.1:9", "imagegen_sdxl_url": "http://127.0.0.1:9"}})
+    d = client.get("/api/imagelab/models").json()      # nothing listens on port 9
+    assert d["models"][0]["id"] == "z-image" and d["models"][0]["up"] is False and d["services"]["sdxl"]["up"] is False
