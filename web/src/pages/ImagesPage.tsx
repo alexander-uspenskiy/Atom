@@ -80,7 +80,12 @@ function Elapsed({ since }: { since: number }) {
   return <span className="tabular-nums">{Math.max(0, Math.round((now - since) / 1000))}s</span>;
 }
 
-function UserBubble({ item }: { item: Item }) {
+function copyText(text: string, toast: ReturnType<typeof useToast>, what = "Prompt") {
+  void navigator.clipboard.writeText(text).then(() => toast.success(`${what} copied`), () => toast.error("Could not copy"));
+}
+
+function UserBubble({ item, onRunAgain, busy }: { item: Item; onRunAgain: (i: Item) => void; busy: boolean }) {
+  const toast = useToast();
   const b = item.body;
   const extras = [b.size, b.image_id ? `from image, change ${b.strength ?? 0.6}` : "", b.steps ? `${b.steps} steps` : "", b.cfg ? `cfg ${b.cfg}` : "", b.sampler ?? "", b.seed != null ? `seed ${b.seed}` : ""].filter(Boolean);
   return (
@@ -90,12 +95,22 @@ function UserBubble({ item }: { item: Item }) {
         <div className="whitespace-pre-wrap break-words rounded-lg rounded-tr-sm bg-accent px-3 py-2 text-sm text-accent-fg">{item.prompt}</div>
         {b.negative_prompt && <div className="max-w-full truncate text-xs text-muted" title={b.negative_prompt}>negative: {b.negative_prompt}</div>}
         <div className="text-xs text-muted">{item.model}{extras.length > 0 && ` · ${extras.join(" · ")}`}</div>
+        <div className="flex gap-1">
+          <button type="button" onClick={() => copyText(item.prompt, toast)} aria-label="Copy prompt" title="Copy this prompt"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg">
+            <Copy className="h-3 w-3" aria-hidden /> Copy prompt
+          </button>
+          <button type="button" onClick={() => onRunAgain(item)} disabled={busy} aria-label="Run again" title="Run this inquiry again with a new random seed"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-surface2 hover:text-fg disabled:opacity-50">
+            <RotateCcw className="h-3 w-3" aria-hidden /> Run again
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function ResultBubble({ item, onReuse, onSeed, onUseAsInput }: { item: Item; onReuse: (i: Item) => void; onSeed: (seed: number) => void; onUseAsInput?: (path: string) => void }) {
+function ResultBubble({ item, onReuse, onSeed, onUseAsInput, onRunAgain, busy }: { item: Item; onReuse: (i: Item) => void; onSeed: (seed: number) => void; onUseAsInput?: (path: string) => void; onRunAgain: (i: Item) => void; busy: boolean }) {
   const toast = useToast();
   const r = item.result;
   return (
@@ -115,6 +130,10 @@ function ResultBubble({ item, onReuse, onSeed, onUseAsInput }: { item: Item; onR
           <div role="alert" className="rounded-md border border-err/40 bg-err/5 px-3 py-2 text-sm">
             <div className="font-medium text-err">Generation failed</div>
             <div className="mt-0.5 break-words text-xs text-muted">{item.error}</div>
+            <div className="mt-2 flex gap-1.5">
+              <Button size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} disabled={busy} onClick={() => onRunAgain(item)}>Retry</Button>
+              <Button size="sm" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyText(item.prompt, toast)}>Copy prompt</Button>
+            </div>
           </div>
         )}
         {r && (
@@ -152,7 +171,9 @@ function ResultBubble({ item, onReuse, onSeed, onUseAsInput }: { item: Item; onR
               >
                 Copy path
               </Button>
-              <Button size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => onReuse(item)}>Reuse settings</Button>
+              <Button size="sm" icon={<Copy className="h-3.5 w-3.5" />} onClick={() => copyText(item.prompt, toast)} title="Copy the prompt text">Copy prompt</Button>
+              <Button size="sm" icon={<RotateCcw className="h-3.5 w-3.5" />} disabled={busy} onClick={() => onRunAgain(item)} title="Same prompt and settings, new random seed">Run again</Button>
+              <Button size="sm" onClick={() => onReuse(item)} title="Put this prompt and its settings back into the box to edit them">Edit in box</Button>
               <Button size="sm" onClick={() => onSeed(r.seed)} title="Keep this composition and change the prompt">Use this seed</Button>
               {onUseAsInput && (
                 <Button size="sm" icon={<ImagePlus className="h-3.5 w-3.5" />} onClick={() => onUseAsInput(r.path)} title="Attach this result as the start image for the next generation">
@@ -252,6 +273,18 @@ export default function ImagesPage() {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [prompt]);
 
+  const run = useCallback(async (body: ImageLabBody) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setItems((l) => [...l, { id, model: body.model || "z-image", prompt: body.prompt, body, at: Date.now(), status: "pending" }]);
+    try {
+      const result = await api.imagelabGenerate(body);
+      setItems((l) => l.map((i) => (i.id === id ? { ...i, status: "done", result } : i)));
+      void q.refetch();
+    } catch (e) {
+      setItems((l) => l.map((i) => (i.id === id ? { ...i, status: "error", error: errMsg(e) } : i)));
+    }
+  }, [q]);
+
   const send = useCallback(async () => {
     const text = prompt.trim();
     if (!text || !model || busy || !ready) return;
@@ -264,17 +297,17 @@ export default function ImagesPage() {
       image_id: attached && canImage ? attached.id : null,
       strength: attached && canImage ? change : null,
     };
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setItems((l) => [...l, { id, model: model.id, prompt: text, body, at: Date.now(), status: "pending" }]);
     setPrompt("");
-    try {
-      const result = await api.imagelabGenerate(body);
-      setItems((l) => l.map((i) => (i.id === id ? { ...i, status: "done", result } : i)));
-      void q.refetch();
-    } catch (e) {
-      setItems((l) => l.map((i) => (i.id === id ? { ...i, status: "error", error: errMsg(e) } : i)));
-    }
-  }, [prompt, model, busy, ready, knobs, q, attached, change, canImage]);
+    await run(body);
+  }, [prompt, model, busy, ready, knobs, attached, change, canImage, run]);
+
+  /** Run the same inquiry again: same prompt and settings, but a fresh random seed (the same seed would repeat the image). */
+  const runAgain = useCallback((i: Item) => {
+    const m = models.find((x) => x.id === i.model);
+    if (busy) { toast.error("Wait for the current image to finish"); return; }
+    if (!m || !m.up || !m.present) { toast.error(`${i.model} is not available right now`); return; }
+    void run({ ...i.body, seed: null });
+  }, [models, busy, run, toast]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -357,8 +390,8 @@ export default function ImagesPage() {
             )}
             {items.map((i) => (
               <div key={i.id} className="space-y-3">
-                <UserBubble item={i} />
-                <ResultBubble item={i} onReuse={reuse} onUseAsInput={canImage ? (path) => void useAsInput(path) : undefined} onSeed={(seed) => { setKnobs({ seed: String(seed) }); setShowSettings(true); }} />
+                <UserBubble item={i} onRunAgain={runAgain} busy={busy} />
+                <ResultBubble item={i} onRunAgain={runAgain} busy={busy} onReuse={reuse} onUseAsInput={canImage ? (path) => void useAsInput(path) : undefined} onSeed={(seed) => { setKnobs({ seed: String(seed) }); setShowSettings(true); }} />
               </div>
             ))}
             <div ref={end} />
