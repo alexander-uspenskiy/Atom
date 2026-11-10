@@ -12,6 +12,7 @@ import { ApprovalCard } from "../ApprovalCard";
 import { argsPreview, fmtTokens, prettyJSON } from "../../lib/format";
 import { cn } from "../../lib/cn";
 import { MessageActions } from "./MessageActions";
+import { Artifacts } from "./Artifacts";
 
 export interface AsstView {
   key: string; reasoning: string; content: string; tools: ToolView[];
@@ -97,6 +98,7 @@ export function AssistantView({ v, onResend, busy }: { v: AsstView; onResend?: (
             <Markdown text={v.content} />
           </div>
         )}
+        {!v.streaming && <Artifacts content={v.content} tools={v.tools} />}
         {blank && v.streaming && <p className="caret text-sm text-muted">Waiting for the model…</p>}
         {v.actions.map((a) => <ApprovalCard key={a.id} action={a} compact />)}
         {v.pendingActionIds.map((id) => (

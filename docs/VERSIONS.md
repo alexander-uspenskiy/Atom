@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.6.0 | 2026-11-10 | **Artifact previews in chat**: images the assistant creates or mentions appear as inline thumbnails under the reply (click for full size); PDFs, text, Markdown, JSON and CSV files appear as expandable preview cards. |
 | 0.5.2 | 2026-11-10 | **Stale UI fix**: the page (`index.html`) is now served with `Cache-Control: no-cache` and hashed assets as immutable, so a browser can no longer keep an old build (missing Copy / Run again / timestamps) after an update. |
 | 0.5.1 | 2026-11-10 | **Model switcher can stop servers started from a terminal** (ops/start.sh or by hand): Atom finds the llama-server on the profile's port and stops it, so every running model shows a Stop button. |
 | 0.5.0 | 2026-11-10 | **Uncensored model profile**: huihui-ai abliterated Qwen3.8-27B (Q4_K, :8082) selectable in the model switcher, per agent, and via `ops/llama-server.sh uncensored`. |
