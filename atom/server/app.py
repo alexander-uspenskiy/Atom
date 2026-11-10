@@ -60,7 +60,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.5.1"
+VERSION = "0.5.2"
 DIST = ROOT / "web" / "dist"
 
 
@@ -743,8 +743,11 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                 return JSONResponse({"detail": "not found"}, status_code=404)
             f = (DIST / path).resolve()
             if path and f.is_file() and DIST.resolve() in f.parents:
-                return FileResponse(f)
-            return FileResponse(DIST / "index.html")
+                # Vite file names carry a content hash, so assets can be cached for good.
+                cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+                return FileResponse(f, headers={"Cache-Control": cache})
+            # index.html names the current bundle: always revalidate, or a browser keeps running an old UI.
+            return FileResponse(DIST / "index.html", headers={"Cache-Control": "no-cache"})
     else:
         @app.get("/", include_in_schema=False)
         async def no_ui():
