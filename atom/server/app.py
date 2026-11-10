@@ -60,7 +60,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 DIST = ROOT / "web" / "dist"
 
 
@@ -155,19 +155,38 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         return request.app.state.svc
 
     # ------------------------------------------------------------------ system
+    # A busy llama-server (long prefill, memory pressure) can miss one health probe. Report "down" only after
+    # several consecutive misses on the same server, so the indicator does not flicker red.
+    health_memo: dict = {"url": None, "fails": 0, "slots": [], "vision": False}
+    HEALTH_FAILS_BEFORE_DOWN = 3
+
     async def status_payload(svc: Services) -> dict:
         eff = svc.settings.effective()
+        if health_memo["url"] != eff.llm_base_url:
+            health_memo.update(url=eff.llm_base_url, fails=0, slots=[], vision=False)
         try:
             healthy = await asyncio.wait_for(svc.llm.healthy(), timeout=2.5)
-            slots = await asyncio.wait_for(svc.llm.slots(), timeout=2.5) if healthy else []
         except Exception:  # noqa: BLE001
-            healthy, slots = False, []
+            healthy = False
+        slots: list = []
         vision = False
-        if healthy and hasattr(svc.llm, "vision"):
+        if healthy:
+            health_memo["fails"] = 0
             try:
-                vision = await asyncio.wait_for(svc.llm.vision(), timeout=2.5)
+                slots = await asyncio.wait_for(svc.llm.slots(), timeout=2.5)
+                health_memo["slots"] = slots
             except Exception:  # noqa: BLE001
-                vision = False
+                slots = health_memo["slots"]
+            if hasattr(svc.llm, "vision"):
+                try:
+                    vision = await asyncio.wait_for(svc.llm.vision(), timeout=2.5)
+                except Exception:  # noqa: BLE001
+                    vision = False
+            health_memo["vision"] = vision
+        else:
+            health_memo["fails"] += 1
+            if health_memo["fails"] < HEALTH_FAILS_BEFORE_DOWN and health_memo["slots"]:
+                healthy, slots, vision = True, health_memo["slots"], health_memo["vision"]   # blip: keep last known good
         roles = {eff.agent_slot: "agent", eff.extract_slot: "extract", eff.chat_slot: "chat"}
         return {"version": VERSION,
                 "llm": {"healthy": healthy, "profile": eff.llm_profile, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,

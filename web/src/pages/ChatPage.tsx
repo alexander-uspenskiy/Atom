@@ -225,8 +225,8 @@ export default function ChatPage() {
   const stop = () => abortRef.current?.abort();
   /** Run an earlier prompt again (sent as a new message at the end of the chat). */
   const resend = (text: string) => { if (!abortRef.current) void send(text); };
-  // Abort an in-flight stream when the page unmounts or the conversation changes.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Deliberately no abort on unmount: navigating to another page must not stop a running reply
+  // (the server cancels the run when the client disconnects). Only the Stop button aborts.
 
   const actionMap = useMemo(() => new Map((actionsQ.data ?? []).map((a) => [a.id, a])), [actionsQ.data]);
   const views = useMemo(() => toViews(convQ.data?.messages ?? [], actionMap, convQ.data?.summary), [convQ.data?.messages, actionMap, convQ.data?.summary]);

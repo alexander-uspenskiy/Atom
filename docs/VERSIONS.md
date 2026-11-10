@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.8.1 | 2026-11-10 | **Fixes**: leaving the Chat page no longer stops a running reply (only Stop does); the sidebar model light no longer flickers red on a single missed health probe (down is reported after 3 consecutive misses). |
 | 0.8.0 | 2026-11-10 | **Per-agent state**: agents get a `set_state` tool (no approval, max 2000 chars) to leave a private note for their next run ("last status", "checked up to X"); it is injected at the top of every run and is viewable/editable/clearable in the agent's edit dialog. API: `GET/PUT/DELETE /api/agents/{id}/state`. Always available even when an agent's tool list is restricted. |
 | 0.7.0 | 2026-11-10 | **`update_memory` agent tool**: a job can replace its own saved memory (e.g. a single "last status") by id instead of adding a near-duplicate every run; `remember` skips exact duplicates; memory ids are shown in the injected memories and in `recall`. **Agent memory scope now defaults to `agent`** everywhere (new agents, default agent, run config, DB schema). New approval kind `update_memory`. |
 | 0.6.0 | 2026-11-10 | **Artifact previews in chat**: images the assistant creates or mentions appear as inline thumbnails under the reply (click for full size); PDFs, text, Markdown, JSON and CSV files appear as expandable preview cards. |
