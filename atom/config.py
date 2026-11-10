@@ -24,6 +24,10 @@ LLM_PROFILES: dict[str, dict] = {
               "alias": "arete-27b", "repo": "bartowski/NousResearch_Arete-27B-GGUF",
               "files": ["NousResearch_Arete-27B-Q4_K_M.gguf", "mmproj-NousResearch_Arete-27B-f16.gguf"],
               "size_gb": 18.1},
+    "uncensored": {"label": "Qwen3.8-27B Uncensored", "detail": "huihui-ai abliterated Qwen3.8-27B, Q4_K 4-bit",
+                   "port": 8082, "alias": "qwen3.8-27b-uncensored", "repo": "huihui-ai/Huihui-Qwen3.8-27B-abliterated-GGUF",
+                   "files": ["Huihui-Qwen3.8-27B-abliterated-Q4_K.gguf", "mmproj-model-bf16.gguf"],
+                   "size_gb": 17.7},
 }
 
 
@@ -37,7 +41,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ATOM_", env_file=".env", extra="ignore")
 
     # --- LLM (OpenAI-compatible server, llama-server by default) ---
-    llm_profile: str = "qwen"    # qwen | arete: picks the server below (see LLM_PROFILES)
+    llm_profile: str = "qwen"    # qwen | arete | uncensored: picks the server below (see LLM_PROFILES)
     llm_base_url: str = "http://127.0.0.1:8080/v1"
     llm_model: str = "qwen3.8-27b"
     llm_api_key: str = "local"

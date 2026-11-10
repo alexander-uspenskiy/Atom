@@ -10,12 +10,15 @@ case "$PROFILE" in
          DEF_PORT=8080; ALIAS=qwen3.8-27b ;;
   arete) DEF_GGUF="$(ls "$HOME"/.cache/huggingface/hub/models--bartowski--NousResearch_Arete-27B-GGUF/snapshots/*/NousResearch_Arete-27B-Q4_K_M.gguf | head -1)"
          DEF_PORT=8081; ALIAS=arete-27b ;;
-  *) echo "unknown profile: $PROFILE (qwen|arete)" >&2; exit 2 ;;
+  uncensored) DEF_GGUF="$(ls "$HOME"/.cache/huggingface/hub/models--huihui-ai--Huihui-Qwen3.8-27B-abliterated-GGUF/snapshots/*/Huihui-Qwen3.8-27B-abliterated-Q4_K.gguf | head -1)"
+         DEF_PORT=8082; ALIAS=qwen3.8-27b-uncensored ;;
+  *) echo "unknown profile: $PROFILE (qwen|arete|uncensored)" >&2; exit 2 ;;
 esac
 MODEL="${ATOM_GGUF:-$DEF_GGUF}"
 # Vision projector (OCR / image understanding). Defaults to the mmproj next to the model; set ATOM_MMPROJ=none to disable.
 MMPROJ="${ATOM_MMPROJ:-$(dirname "$MODEL")/mmproj-F16.gguf}"
 [ -f "$MMPROJ" ] || MMPROJ="$(dirname "$MODEL")/mmproj-NousResearch_Arete-27B-f16.gguf"
+[ -f "$MMPROJ" ] || MMPROJ="$(dirname "$MODEL")/mmproj-model-bf16.gguf"
 MMPROJ_ARGS=()
 if [ "$MMPROJ" != "none" ] && [ -f "$MMPROJ" ]; then MMPROJ_ARGS=(--mmproj "$MMPROJ"); fi
 PORT="${ATOM_LLM_PORT:-$DEF_PORT}"

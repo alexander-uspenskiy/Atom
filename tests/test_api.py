@@ -651,7 +651,7 @@ def test_models_list_and_activate(client, svc, monkeypatch):
     monkeypatch.setattr(svc.models, "start", lambda p: None)
     monkeypatch.setattr(svc.models, "installed", lambda p: True)
     r = client.get("/api/models").json()
-    assert {m["id"] for m in r["models"]} == {"qwen", "arete"} and r["active"] == "qwen"
+    assert {m["id"] for m in r["models"]} == {"qwen", "arete", "uncensored"} and r["active"] == "qwen"
     r = client.post("/api/models/arete/activate").json()
     assert r["active"] == "arete"
     st = client.get("/api/status").json()["llm"]

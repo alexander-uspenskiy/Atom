@@ -44,7 +44,7 @@ ops/start.sh                      # model server (:8080) + dashboard backend (:8
 open http://127.0.0.1:8787        # the dashboard
 ```
 
-Pieces separately: `ops/llama-server.sh [qwen|arete]` (3 slots: agent / extraction+thinking / chat) and `uv run python -m atom serve`.
+Pieces separately: `ops/llama-server.sh [qwen|arete|uncensored]` (3 slots: agent / extraction+thinking / chat) and `uv run python -m atom serve`.
 
 ## Use
 
@@ -61,7 +61,7 @@ Two model profiles (`atom/config.py: LLM_PROFILES`), each its own llama-server o
 once: **qwen** (Qwen3.8-27B, UD-Q4_K_M, :8080, default) and **arete** (NousResearch Arete-27B, Q4_K_M, :8081). Click the
 model name in the dashboard sidebar to list, switch the default, start, stop or download a profile (`/api/models`).
 Atom can stop only servers it started itself. An agent can pick its own model (Agents → Model; empty = default), and its
-runs route LLM calls to that server. Start one by hand with `ops/llama-server.sh arete`.
+runs route LLM calls to that server. Start one by hand with `ops/llama-server.sh arete` (or `uncensored`, :8082: huihui-ai abliterated Qwen3.8-27B Q4_K).
 
 ## Chat context
 

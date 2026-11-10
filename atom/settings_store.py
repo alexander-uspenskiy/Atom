@@ -12,7 +12,7 @@ TZ_HELP = "IANA timezone used for schedules created by the assistant, e.g. Ameri
 SCHEMA: list[dict[str, Any]] = [
     # --- Model ---
     {"key": "llm_profile", "label": "Model", "group": "Model", "type": "select", "options": list(LLM_PROFILES),
-     "help": "qwen = Qwen3.8-27B (:8080). arete = NousResearch Arete-27B 4-bit (:8081). Sets the URL and model name "
+     "help": "qwen = Qwen3.8-27B (:8080). arete = NousResearch Arete-27B 4-bit (:8081). uncensored = abliterated Qwen3.8-27B (:8082). Sets the URL and model name "
              "below; start the matching server with ops/llama-server.sh <profile>."},
     {"key": "llm_base_url", "label": "LLM server URL", "group": "Model", "type": "text",
      "help": "OpenAI-compatible endpoint (llama-server). Changing this reconnects immediately."},

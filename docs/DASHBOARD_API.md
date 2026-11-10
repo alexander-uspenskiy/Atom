@@ -64,7 +64,7 @@ Model profiles, each a separate llama-server (`ops/llama-server.sh <profile>`).
   "is_default": false, "created_at": 0, "updated_at": 0 }
 ```
 `tools`: null = all tools, else array of tool names. `memory_scope`: `none | global | agent`.
-`model`: null (use the default) or a model profile id (`qwen | arete`); `thinking`: `inherit | off | auto | on`; `effort`: `inherit | low | medium | xhigh`.
+`model`: null (use the default) or a model profile id (`qwen | arete | uncensored`); `thinking`: `inherit | off | auto | on`; `effort`: `inherit | low | medium | xhigh`.
 
 - `GET /api/agents` → `Agent[]`;  `POST /api/agents` (Agent without id/timestamps) → `Agent`
 - `GET|PUT|DELETE /api/agents/{id}` (default agent cannot be deleted → 409)
