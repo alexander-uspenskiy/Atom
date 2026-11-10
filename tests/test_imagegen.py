@@ -24,8 +24,8 @@ JPG = base64.b64decode(
 def stub(tmp_path, monkeypatch):
     calls: list[dict] = []
 
-    async def fake_generate(s, prompt, size="1024x1024", seed=None):
-        calls.append({"prompt": prompt, "size": size, "seed": seed})
+    async def fake_generate(s, prompt, size="1024x1024", seed=None, model=None, negative_prompt=None):
+        calls.append({"prompt": prompt, "size": size, "seed": seed, "model": model, "negative_prompt": negative_prompt})
         png = tmp_path / f"img{len(calls)}.png"
         jpg = tmp_path / f"img{len(calls)}.preview.jpg"
         png.write_bytes(PNG)
@@ -158,3 +158,30 @@ def test_chat_in_project_saves_there(client, fake, stub, tmp_path):
     res = next(e for e in events if e["type"] == "tool_result")
     saved = list((proj / "generated-images").glob("*.png"))
     assert res["ok"] and len(saved) == 1 and str(saved[0]) in res["result"] and "a-lighthouse-at-dusk" in saved[0].name
+
+
+async def test_tool_passes_model_and_negative_prompt(svc, stub):
+    s = svc.settings.base.model_copy(update={"imagegen_enabled": True, "imagegen_sdxl_enabled": True})
+    ctx = ToolContext(session=None, llm=None, settings=s)
+    await t_generate_image(ctx, {"prompt": "1girl, solo", "model": "illustrious", "negative_prompt": "text"})
+    assert stub[0]["model"] == "illustrious" and stub[0]["negative_prompt"] == "text"
+
+
+def test_backend_routing_and_disabled_sdxl(svc):
+    s = svc.settings.base.model_copy(update={"imagegen_url": "http://z", "imagegen_sdxl_url": "http://x"})
+    assert [imagegen.backend_url(s, m) for m in (None, "", "default", "Z-Image")] == ["http://z"] * 4
+    with pytest.raises(imagegen.ImageGenError, match="turned off"):
+        imagegen.backend_url(s, "pony")
+    s = s.model_copy(update={"imagegen_sdxl_enabled": True})
+    assert imagegen.backend_url(s, "pony") == "http://x"
+
+
+def test_tool_spec_offers_model_and_new_sizes():
+    props = build_tools()["generate_image"].properties
+    assert {"model", "negative_prompt", "seed"} <= set(props) and "832x1216" in props["size"]["enum"]
+    assert "image-tag-prompts" in props["model"]["description"]
+
+
+def test_sdxl_settings_default_off_and_listed(client):
+    vals = client.get("/api/settings").json()["values"]
+    assert vals["imagegen_sdxl_enabled"] is False and vals["imagegen_sdxl_url"].endswith(":8091")

@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p logs
 
-cleanup() { echo; echo "stopping..."; kill "${LLM_PID:-}" "${API_PID:-}" "${IMG_PID:-}" 2>/dev/null || true; wait 2>/dev/null || true; }
+cleanup() { echo; echo "stopping..."; kill "${LLM_PID:-}" "${API_PID:-}" "${IMG_PID:-}" "${SDXL_PID:-}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 if curl -sf http://127.0.0.1:8080/health >/dev/null 2>&1; then
@@ -22,6 +22,15 @@ if [ -d data/models/z-image-turbo-4bit ] && ! curl -sf http://127.0.0.1:8090/hea
   ops/imagegen/run.sh > logs/imagegen.log 2>&1 &
   IMG_PID=$!
 fi
+
+# Optional SDXL service (Juggernaut / RealVis / Pony / Illustrious). Only if a checkpoint is present; see ops/imagegen-sdxl/README.md.
+if ls data/models/sdxl/*.safetensors >/dev/null 2>&1 && ! curl -sf http://127.0.0.1:8091/health >/dev/null 2>&1; then
+  echo "starting SDXL image service (log: logs/imagegen-sdxl.log) ..."
+  ops/imagegen-sdxl/run.sh > logs/imagegen-sdxl.log 2>&1 &
+  SDXL_PID=$!
+fi
+# Seed the bundled image-prompting skill into the user skills folder (never overwrites an edited copy).
+mkdir -p "$HOME/.atom/skills" && cp -Rn ops/imagegen-sdxl/skills/* "$HOME/.atom/skills/" 2>/dev/null || true
 
 if [ ! -d web/dist ]; then
   echo "frontend not built: run 'cd web && pnpm install && pnpm build' (API still works)"

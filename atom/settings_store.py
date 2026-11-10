@@ -83,6 +83,12 @@ SCHEMA: list[dict[str, Any]] = [
      "min": 30, "max": 1800, "step": 10, "help": "Per image. The first one also loads the model."},
     {"key": "imagegen_max_per_run", "label": "Max images per run", "group": "Image generation", "type": "number",
      "min": 1, "max": 20, "step": 1, "help": "Per agent run or chat turn, so a retry loop cannot tie up the machine."},
+    {"key": "imagegen_sdxl_enabled", "label": "Enable SDXL models", "group": "Image generation", "type": "boolean",
+     "help": "Lets generate_image pick a named SDXL checkpoint (juggernaut, realvis, pony, illustrious) served by "
+             "ops/imagegen-sdxl. Checkpoints load on demand, one at a time, and unload when idle. Pony and "
+             "Illustrious expect tag-style prompts; the assistant loads the image-tag-prompts skill for those."},
+    {"key": "imagegen_sdxl_url", "label": "SDXL service URL", "group": "Image generation", "type": "text",
+     "help": "Where ops/imagegen-sdxl/server.py listens."},
     # --- Assistant & memory ---
     {"key": "chat_mode", "label": "Default chat mode", "group": "Assistant & memory", "type": "select",
      "options": ["auto", "manual", "plan"],

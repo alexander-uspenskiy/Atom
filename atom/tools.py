@@ -19,6 +19,7 @@ from .browser.reader import CHARS_PER_TOKEN
 from .browser.session import ActionError, BrowserSession
 from .config import Settings
 from . import files as _files
+from . import imagegen as _imagegen
 from .llm import LLM
 
 
@@ -292,7 +293,8 @@ async def t_generate_image(ctx: ToolContext, a: dict) -> ToolOutput:
     size = str(a.get("size") or "1024x1024")
     seed = a.get("seed")
     try:
-        img = await imagegen.generate(ctx.settings, str(a["prompt"]), size, int(seed) if seed not in (None, "") else None)
+        img = await imagegen.generate(ctx.settings, str(a["prompt"]), size, int(seed) if seed not in (None, "") else None,
+                                      model=a.get("model") or None, negative_prompt=a.get("negative_prompt") or None)
     except (imagegen.ImageGenError, ValueError) as e:
         raise ActionError(f"Image generation failed: {e}") from e
     ctx.counters["images"] = ctx.counters.get("images", 0) + 1
@@ -349,10 +351,13 @@ def build_tools() -> dict[str, ToolSpec]:
                  t_web_search),
         ToolSpec("generate_image", "Create an image from a text description with a local model (takes ~10-60 s). "
                                    "Returns the file path and shows you the result so you can verify it. Describe "
-                                   "subject, setting, style and lighting concretely in English.",
-                 {"prompt": S, "size": {"type": "string", "enum": ["1024x1024", "768x768", "1024x768", "768x1024",
-                                                                    "1280x720", "720x1280", "512x512"]},
-                  "seed": {"type": "integer"}}, ["prompt"], t_generate_image, side_effect=True),
+                                   "subject, setting, style and lighting concretely in English (tags for the "
+                                   "illustrious and pony models, see `model`).",
+                 {"prompt": S, "size": {"type": "string", "enum": list(_imagegen.SIZES)},
+                  "seed": {"type": "integer"},
+                  "model": {"type": "string", "description": _imagegen.MODEL_HELP},
+                  "negative_prompt": {"type": "string", "description": _imagegen.NEGATIVE_HELP}},
+                 ["prompt"], t_generate_image, side_effect=True),
         ToolSpec("note", "Save a short fact to your notepad; it is kept even when history is compacted.",
                  {"text": S}, ["text"], t_note),
         ToolSpec("use_skill", "Load the full instructions of one of your skills by name.",

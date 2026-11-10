@@ -15,7 +15,12 @@ import httpx
 
 from .config import Settings
 
-SIZES = ("1024x1024", "768x768", "1024x768", "768x1024", "1280x720", "720x1280", "512x512")
+SIZES = ("1024x1024", "768x768", "1024x768", "768x1024", "1280x720", "720x1280", "512x512", "832x1216", "1216x832")
+MODEL_HELP = ("Omit for the default model (plain English). Named SDXL checkpoints, if enabled: juggernaut (photoreal, "
+              "English), realvis (photoreal portraits, English), illustrious (anime, TAGS), pony (anime/cartoon/furry, "
+              "TAGS). For illustrious and pony call use_skill('image-tag-prompts') first and write comma-separated "
+              "tags, not sentences. Each switch of model costs 10-30 s to load, so stay on one model per task.")
+NEGATIVE_HELP = "Things to avoid (SDXL models only; sensible defaults are already applied). Same style as the prompt."
 PROMPT_HINT = ("Describe the image in plain concrete English: subject, setting, style, lighting, colours. "
                "Text rendered inside the image should be short and quoted.")
 
@@ -37,20 +42,40 @@ class GeneratedImage:
         return "data:image/jpeg;base64," + base64.b64encode(self.preview_path.read_bytes()).decode()
 
 
-async def generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int | None = None) -> GeneratedImage:
+DEFAULT_MODELS = ("", "default", "z-image", "zimage")      # these go to the Z-Image service; anything else is SDXL
+
+
+def backend_url(s: Settings, model: str | None) -> str:
+    """Z-Image service for the default model, the SDXL service (ops/imagegen-sdxl) for a named checkpoint."""
+    if (model or "").strip().lower() in DEFAULT_MODELS:
+        return s.imagegen_url
+    if not s.imagegen_sdxl_enabled:
+        raise ImageGenError(f"model '{model}' needs the SDXL image service, which is turned off in Settings "
+                            "(Image generation). Omit `model` to use the default.")
+    return s.imagegen_sdxl_url
+
+
+async def generate(s: Settings, prompt: str, size: str = "1024x1024", seed: int | None = None,
+                   model: str | None = None, negative_prompt: str | None = None) -> GeneratedImage:
     prompt = (prompt or "").strip()
     if not prompt:
         raise ImageGenError("prompt is empty")
+    base = backend_url(s, model)
     body: dict = {"prompt": prompt, "size": size or "1024x1024"}
     if seed is not None:
         body["seed"] = int(seed)
-    url = s.imagegen_url.rstrip("/") + "/v1/images/generations"
+    if (model or "").strip().lower() not in DEFAULT_MODELS:
+        body["model"] = model.strip().lower()
+        if negative_prompt and negative_prompt.strip():
+            body["negative_prompt"] = negative_prompt.strip()
+    url = base.rstrip("/") + "/v1/images/generations"
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(s.imagegen_timeout_s, connect=5)) as c:
             r = await c.post(url, json=body)
     except httpx.ConnectError:
-        raise ImageGenError(f"image service is not running at {s.imagegen_url} "
-                            "(start it with ops/imagegen/run.sh)") from None
+        sdxl = base == s.imagegen_sdxl_url and base != s.imagegen_url
+        raise ImageGenError(f"image service is not running at {base} "
+                            f"(start it with {'ops/imagegen-sdxl' if sdxl else 'ops/imagegen'}/run.sh)") from None
     except httpx.TimeoutException:
         raise ImageGenError(f"image generation timed out after {s.imagegen_timeout_s}s") from None
     except httpx.HTTPError as e:

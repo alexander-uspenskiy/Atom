@@ -111,19 +111,22 @@ RUN_COMMAND = _spec("run_command", "Run a shell command on the user's computer (
                     "disk or system changes) unless the user explicitly asked for that exact thing.",
                     {"command": S, "cwd": S, "timeout_s": {"type": "integer"}}, ["command"])
 from . import files as _files
+from . import imagegen as _imagegen
 FILE_SPECS = [_spec(n, d, props, req) for n, (d, props, req) in _files.TOOL_DEFS.items()]
 MODES = ("auto", "manual", "plan")
 GENERATE_IMAGE = _spec(
     "generate_image", "Create an image from a text description with a local model (10-60 s). The result is shown to "
     "you so you can check it against the request; refine the prompt and call again if it is wrong. Describe subject, "
-    "setting, style and lighting concretely in English.",
-    {"prompt": S, "size": {"type": "string", "enum": ["1024x1024", "768x768", "1024x768", "768x1024", "1280x720",
-                                                       "720x1280", "512x512"]}, "seed": {"type": "integer"}},
+    "setting, style and lighting concretely in English (tags for the illustrious and pony models, see `model`).",
+    {"prompt": S, "size": {"type": "string", "enum": list(_imagegen.SIZES)}, "seed": {"type": "integer"},
+     "model": {"type": "string", "description": _imagegen.MODEL_HELP},
+     "negative_prompt": {"type": "string", "description": _imagegen.NEGATIVE_HELP}},
     ["prompt"])
 IMAGE_MARK = "generated_image:"
 IMAGE_CAN_CREATE = ("You can create images with generate_image: write a concrete English prompt, look at the result, "
                     "and if it misses something important call it again once or twice with a refined prompt. "
-                    "Tell the user the file path of the final image.")
+                    "Tell the user the file path of the final image. If the `model` argument offers named models, "
+                    "illustrious and pony need tag-style prompts: load the image-tag-prompts skill before using them.")
 ACT_TOOLS = {"run_command", "run_agent", "generate_image"} | _files.WRITE_TOOLS                   # side effects outside the dashboard config
 APPROVAL_TIMEOUT_S = 600
 MODE_PROMPTS = {
@@ -326,7 +329,8 @@ class Assistant:
                 raise Invalid(f"image limit reached ({cap} per message); use the images you have")
             try:
                 img = await imagegen.generate(eff, str(a["prompt"]), str(a.get("size") or "1024x1024"),
-                                              a.get("seed"))
+                                              a.get("seed"), model=a.get("model") or None,
+                                              negative_prompt=a.get("negative_prompt") or None)
             except imagegen.ImageGenError as e:
                 raise Invalid(f"image generation failed: {e}") from e
             up = await asyncio.to_thread(svc.uploads.save, img.preview_path.read_bytes(), img.path.name)

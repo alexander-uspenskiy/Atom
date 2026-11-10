@@ -1,0 +1,15 @@
+[project]
+name = "atom-imagegen-sdxl"
+version = "0.1.0"
+description = "Local SDXL image service for Atom (Juggernaut, RealVis, Pony, Illustrious) on Apple Silicon via diffusers"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.5",
+    "diffusers>=0.32",
+    "transformers>=4.46",
+    "accelerate>=1.0",
+    "safetensors>=0.4",
+    "pillow>=10",
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+]
