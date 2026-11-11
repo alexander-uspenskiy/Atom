@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,53 @@ from ..stores import Conflict, Invalid, NotFound
 from ..uploads import media_type
 from ..tools import build_tools
 from pydantic import BaseModel, Field
+
+
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "testserver"}     # "testserver" is Starlette's TestClient
+
+
+def _hostname(value: str) -> str:
+    """Hostname part of a Host header or an Origin URL ('[::1]:8787' -> '::1', 'http://localhost:5173' -> 'localhost')."""
+    v = value.strip().lower().split("://", 1)[-1].split("/", 1)[0]
+    if v.startswith("["):
+        return v[1:v.find("]")] if "]" in v else v
+    return v.rsplit(":", 1)[0] if v.count(":") == 1 else v
+
+
+class LocalOnlyGuard:
+    """Refuse requests whose Host is not this machine (blocks DNS rebinding), and state-changing requests whose Origin
+    is another site (blocks cross-site forms and fetches). The API has no login: it is only safe because only the owner's
+    own pages can reach it. Extra hosts: the configured --host (unless a wildcard) and ATOM_ALLOWED_HOSTS (comma list)."""
+
+    def __init__(self, app):
+        self.app = app
+
+    def allowed(self, scope) -> set[str]:
+        extra = {h.strip().lower() for h in os.environ.get("ATOM_ALLOWED_HOSTS", "").split(",") if h.strip()}
+        try:
+            host = scope["app"].state.svc.settings.effective().server_host
+        except Exception:
+            host = ""
+        if host and host not in ("0.0.0.0", "::"):
+            extra.add(host.lower())
+        return LOOPBACK_HOSTS | extra
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        allowed = self.allowed(scope)
+        bad = None
+        if _hostname(headers.get("host", "")) not in allowed:
+            bad = "host not allowed"
+        elif scope["method"] not in ("GET", "HEAD", "OPTIONS") and headers.get("origin") not in (None, "null") \
+                and _hostname(headers["origin"]) not in allowed:
+            bad = "cross-site request refused"
+        elif scope["method"] not in ("GET", "HEAD", "OPTIONS") and headers.get("origin") == "null":
+            bad = "cross-site request refused"
+        if bad:
+            return await JSONResponse({"detail": bad}, status_code=403)(scope, receive, send)
+        await self.app(scope, receive, send)
 
 
 class McpServerIn(BaseModel):
@@ -61,7 +109,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 DIST = ROOT / "web" / "dist"
 
 
@@ -139,6 +187,7 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                 await svc.shutdown()
 
     app = FastAPI(title="Atom", version=VERSION, lifespan=lifespan)
+    app.add_middleware(LocalOnlyGuard)
 
     # ------------------------------------------------------------------ errors
     for exc, code in ((NotFound, 404), (Invalid, 422), (SettingsError, 422), (Conflict, 409)):

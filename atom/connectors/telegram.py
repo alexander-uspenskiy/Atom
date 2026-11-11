@@ -30,6 +30,7 @@ from ..tools import ToolContext, ToolOutput, ToolSpec
 from . import Connector, register
 
 log = logging.getLogger("atom.telegram")
+logging.getLogger("httpx").setLevel(logging.WARNING)       # httpx logs full request URLs at INFO, and the bot token is in the URL
 
 ICON = Path(__file__).parent / "assets" / "atom.png"
 SHORT_DESCRIPTION = "Chat with Atom, my local web agent: browse, run tasks, and manage schedules."          # <=120
