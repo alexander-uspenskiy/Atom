@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.10.0 | 2026-11-11 | **Long-task notification**: when a chat reply takes 45 s or more and finishes (not stopped, no error), Atom shows a system notification if the tab is unfocused (permission requested on first send), otherwise an in-app toast. |
 | 0.9.1 | 2026-11-11 | **Security hardening**: the API now refuses requests whose `Host` is not this machine (blocks DNS rebinding) and state-changing requests from another site's `Origin` (403). Extra hosts via `--host` or `ATOM_ALLOWED_HOSTS`. httpx request logging is pinned to WARNING so a Telegram bot token in a URL can never reach logs. |
 | 0.9.0 | 2026-11-10 | **Image queue**: image renders from every source (chat tool, agents, Images page) and every image service now run one at a time, first come first served, so they no longer slow each other or push the machine into swap. `GET /api/status` has `images: {running, queued}`; the Images page shows "Queued behind another image…" while it waits. |
 | 0.8.1 | 2026-11-10 | **Fixes**: leaving the Chat page no longer stops a running reply (only Stop does); the sidebar model light no longer flickers red on a single missed health probe (down is reported after 3 consecutive misses). |
