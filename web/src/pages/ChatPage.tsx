@@ -5,7 +5,7 @@ import { FolderGit2, MessageSquarePlus, MessagesSquare, Pencil, Plus, Trash2 } f
 import { api, streamChat } from "../api/client";
 import { qk, useActions, useConversations, useProjects } from "../api/hooks";
 import type { ConversationInfo, ConversationSummary, Message, PendingAction, Project } from "../api/types";
-import { LONG_TASK_MS, notify, requestNotifyPermission } from "../lib/notify";
+import { LONG_TASK_MS, notify, userAway } from "../lib/notify";
 import { emptyTurn, turnReducer, type ToolView } from "../lib/chatState";
 import { lsGet, lsSet } from "../lib/storage";
 import { errMsg, fmtRelative, truncate } from "../lib/format";
@@ -165,7 +165,6 @@ export default function ChatPage() {
       attachments.clear();
       baseUsers.current = countUsers(qc.getQueryData<{ messages?: Message[] }>(qk.conversation(id))?.messages);
       dispatch({ t: "start", user: content, images });
-      requestNotifyPermission();
       const startedAt = Date.now();
       let error: string | null = null;
       let gotEvent = false;
@@ -197,7 +196,7 @@ export default function ChatPage() {
       abortRef.current = null;
       dispatch({ t: "clear" });
       if (!aborted && !error && Date.now() - startedAt >= LONG_TASK_MS) {
-        const shown = !document.hasFocus() && notify("Atom", "Your chat task has finished.");
+        const shown = userAway() && notify("Atom", "Your chat task has finished.");
         if (!shown) toast.success("Chat task finished");
       }
       if (error) {
