@@ -109,7 +109,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.13.0"
+VERSION = "0.13.1"
 DIST = ROOT / "web" / "dist"
 
 
@@ -242,7 +242,7 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                 "llm": {"healthy": healthy, "profile": eff.llm_profile, "base_url": eff.llm_base_url, "model": eff.llm_model, "vision": vision,
                         "slots": [{**s, "role": roles.get(s["id"], "other")} for s in slots]},
                 "images": imagegen.QUEUE.snapshot(),
-                "runs": {"running": svc.run_manager.running_ids(), "queued": svc.run_manager.queued_count(),
+                "runs": {"running": svc.run_manager.active_ids(), "queued": svc.run_manager.queued_count(),
                          "max_concurrent": eff.max_concurrent_runs},
                 "scheduler": {"running": bool(svc.scheduler.sched and svc.scheduler.sched.running),
                               "jobs": svc.scheduler.job_count()},

@@ -177,6 +177,7 @@ class TurnRun:
         svc.runs.create(self.id, task, agent=agent, trigger=trigger, schedule_id=None, config={"chat": True},
                         thinking="think" if think else "off", effort=effort, run_dir=str(eff.runs_dir / self.id))
         svc.runs.mark_running(self.id)
+        svc.run_manager.turns.add(self.id)
         svc.bus.publish_global("run_started", run=svc.runs.get(self.id))
 
     def llm(self, stats: dict, think: bool) -> None:
@@ -210,6 +211,7 @@ class TurnRun:
 
     def finish(self, status: str, result: str | None, error: str | None) -> None:
         self.tot["wall_seconds"] = time.perf_counter() - self.t0
+        self.svc.run_manager.turns.discard(self.id)
         self.svc.runs.finish(self.id, status, status == "done", result, error, self.tot)
         self.svc.bus.publish_global("run_finished", run=self.svc.runs.get(self.id))
 

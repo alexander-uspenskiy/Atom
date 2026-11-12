@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.13.1 | 2026-11-12 | **Active chat turns count as running**: a chat or Telegram turn in progress now shows in the sidebar Runs badge and the Overview "N running" tile (pulsing), like agent runs. |
 | 0.13.0 | 2026-11-12 | **Telegram Agent gets everything**: all tools (terminal and file tools included) and all enabled skills, max steps 120 (an agent created by 0.11 is widened once). New Telegram menu commands: `/settings` (inline buttons for thinking, effort and max steps ±10/±50, saved on the agent), `/tools`, `/skills`. Telegram chat turns use the agent's thinking and effort. |
 | 0.12.0 | 2026-11-12 | **Every chat turn is a run**: each dashboard chat turn and each Telegram message is recorded in Runs with the same details as scheduled runs (model calls and tool calls as steps, tokens, timings, result, stopped/failed). Runs has a new **Type** filter: Chat, Telegram chat, Agent (from chat), Agent (from Telegram), Scheduled, Manual, API (`GET /api/runs?trigger=`). Triggers: `chat_turn`, `telegram_turn` (new); `chat`, `telegram` (agent runs started from chat). |
 | 0.11.0 | 2026-11-12 | **Telegram Agent**: tasks started from the Telegram bot now run under a dedicated general-purpose "Telegram Agent" (trigger `telegram`), so they show in Runs and can be filtered via the Agent dropdown. Its working folder `data/telegram_bot/` (gitignored with the rest of `data/`) has `images/`, `memory/` and `scratchnotes/`. |

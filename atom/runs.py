@@ -24,6 +24,7 @@ class RunManager:
         self._cfg: dict[str, tuple[str, RunConfig]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
         self._workers: list[asyncio.Task] = []
+        self.turns: set[str] = set()          # chat turns recorded as runs, in progress
 
     # ---------- configuration ----------
     def resolve(self, agent: dict, *, start_url: str | None = None, overrides: dict | None = None,
@@ -66,6 +67,10 @@ class RunManager:
         self.bus.publish_run(row["id"], "run_status", status="queued")
         self.bus.publish_global("run_queued", run=row)
         return row
+
+    def active_ids(self) -> list[str]:
+        """Everything shown as active: agent runs plus chat turns in progress (these don't use a worker slot)."""
+        return [*self.running_ids(), *self.turns]
 
     def running_ids(self) -> list[str]:
         return [rid for rid, t in self._tasks.items() if not t.done()]
