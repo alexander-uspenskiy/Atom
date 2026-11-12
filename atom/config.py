@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     imagegen_enabled: bool = False
     imagegen_url: str = "http://127.0.0.1:8090"
     imagegen_timeout_s: int = 900    # per image; the first one also loads the model (LUSTIFY V10 can take minutes)
-    imagegen_max_per_run: int = 4    # cap per agent run / chat turn so a loop cannot burn the GPU
+    imagegen_max_per_run: int = 5    # cap per agent run / chat turn so a loop cannot burn the GPU
     # Second image service (ops/imagegen-sdxl: CyberRealistic Pony / Illustrious). Chosen per call via `model`.
     imagegen_sdxl_enabled: bool = False
     imagegen_sdxl_url: str = "http://127.0.0.1:8091"

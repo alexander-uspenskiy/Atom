@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.13.3 | 2026-11-12 | Default **max images per run/chat turn** raised from 4 to 5. |
 | 0.13.2 | 2026-11-12 | **Image cap fix**: when the model asked for more `generate_image` calls in one reply than the per-turn cap (default 4), every call in the batch was refused and nothing rendered. Now the first calls up to the cap render and only the extra ones are refused. |
 | 0.13.1 | 2026-11-12 | **Active chat turns count as running**: a chat or Telegram turn in progress now shows in the sidebar Runs badge and the Overview "N running" tile (pulsing), like agent runs. |
 | 0.13.0 | 2026-11-12 | **Telegram Agent gets everything**: all tools (terminal and file tools included) and all enabled skills, max steps 120 (an agent created by 0.11 is widened once). New Telegram menu commands: `/settings` (inline buttons for thinking, effort and max steps ±10/±50, saved on the agent), `/tools`, `/skills`. Telegram chat turns use the agent's thinking and effort. |
