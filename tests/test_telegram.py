@@ -367,3 +367,13 @@ async def test_telegram_agent_has_everything_and_menu_edits_it(svc):
     assert (a["thinking"], a["effort"], a["max_steps"]) == ("on", "low", 70)
     text, extra = br._settings_msg()
     assert "Max steps: 70" in text and extra["reply_markup"]["inline_keyboard"]
+
+
+def test_image_cap_refuses_only_calls_beyond_it(svc):
+    a = Assistant(svc)
+    cid = svc.conversations.create()["id"]
+    svc.conversations.append(cid, "user", "story")
+    calls = [{"id": f"c{i}", "name": "generate_image", "arguments": {}} for i in range(5)]
+    svc.conversations.append(cid, "assistant", "", tool_calls=calls)
+    assert [a._images_this_turn(cid, f"c{i}") for i in range(5)] == [1, 2, 3, 4, 5]
+    assert a._images_this_turn(cid) == 5

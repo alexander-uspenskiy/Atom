@@ -300,7 +300,7 @@ class Assistant:
 
     async def _tool(self, name: str, a: dict, conv_id: str, events: asyncio.Queue,
                     can_send_images: bool = False, workdir: str | None = None, mode: str = "auto",
-                    default_agent: str | None = None) -> tuple[str, dict]:
+                    default_agent: str | None = None, call_id: str | None = None) -> tuple[str, dict]:
         """Execute one assistant tool. Returns (result_text, extras) where extras may hold action_id / run_id."""
         svc = self.svc
         eff = svc.settings.effective()
@@ -378,7 +378,7 @@ class Assistant:
         if name == "generate_image":
             from . import imagegen
             cap = eff.imagegen_max_per_run
-            if self._images_this_turn(conv_id) > cap:     # the current call is already in the history
+            if self._images_this_turn(conv_id, call_id) > cap:     # the current call is already in the history
                 raise Invalid(f"image limit reached ({cap} per message); use the images you have")
             try:
                 img = await imagegen.generate(eff, str(a["prompt"]), str(a.get("size") or "1024x1024"),
@@ -451,13 +451,21 @@ class Assistant:
                            "result": action.get("result")}), {"action_id": action["id"]}
 
     # ------------------------------------------------------------------ conversation
-    def _images_this_turn(self, conv_id: str) -> int:
-        """generate_image calls made since the user's latest message."""
-        n = 0
+    def _images_this_turn(self, conv_id: str, call_id: str | None = None) -> int:
+        """generate_image calls made since the user's latest message, counted in order up to and including `call_id`
+        (so a batch of 5 calls with a cap of 4 renders the first 4 and refuses only the 5th)."""
+        turn = []
         for m in reversed(self.svc.conversations.get(conv_id)["messages"]):
             if m["role"] == "user":
                 break
-            n += sum(1 for c in (m.get("tool_calls") or []) if c["name"] == "generate_image")
+            turn.append(m)
+        n = 0
+        for m in reversed(turn):
+            for c in m.get("tool_calls") or []:
+                if c["name"] == "generate_image":
+                    n += 1
+                    if call_id is not None and c.get("id") == call_id:
+                        return n
         return n
 
     def _history(self, conv_id: str, can_send_images: bool = False, workdir: str | None = None,
@@ -801,7 +809,8 @@ class Assistant:
                         text, ok = refusal, False
                     else:
                         try:
-                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode, agent)
+                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode, agent,
+                                                         call_id=c.id)
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
                     if rec:
