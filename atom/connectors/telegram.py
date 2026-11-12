@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from ..browser.session import ActionError
-from ..stores import Conflict, Invalid, NotFound
+from ..stores import TELEGRAM_AGENT, Conflict, Invalid, NotFound
 from ..tools import ToolContext, ToolOutput, ToolSpec
 from . import Connector, register
 
@@ -328,7 +328,8 @@ class Bridge:
             typing = asyncio.create_task(self._typing(chat_id))
             final = ""
             try:
-                async for ev in self.svc.assistant.converse(conv, text, images=images, can_send_images=True):
+                async for ev in self.svc.assistant.converse(conv, text, images=images, can_send_images=True,
+                                                           agent=TELEGRAM_AGENT):
                     t = ev["type"]
                     if t == "message_end":
                         final = (ev["message"]["content"] or "").strip() or final

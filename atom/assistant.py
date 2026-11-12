@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from .llm import LLMError
 from .scheduler import describe, normalize_trigger
-from .stores import Conflict, Invalid, NotFound
+from .stores import TELEGRAM_AGENT, Conflict, Invalid, NotFound
 
 log = logging.getLogger(__name__)
 
@@ -247,7 +247,8 @@ class Assistant:
         raise NotFound("that run has no screenshots")
 
     async def _tool(self, name: str, a: dict, conv_id: str, events: asyncio.Queue,
-                    can_send_images: bool = False, workdir: str | None = None, mode: str = "auto") -> tuple[str, dict]:
+                    can_send_images: bool = False, workdir: str | None = None, mode: str = "auto",
+                    default_agent: str | None = None) -> tuple[str, dict]:
         """Execute one assistant tool. Returns (result_text, extras) where extras may hold action_id / run_id."""
         svc = self.svc
         eff = svc.settings.effective()
@@ -341,7 +342,8 @@ class Assistant:
                     f"Full-size file: {img.path}{note}\n[{IMAGE_MARK}{up['id']}] The image is shown to you in the next message: "
                     "check it against the request."), {}
         if name == "run_agent":
-            agent = svc.agents.find(a["agent"]) if a.get("agent") else svc.agents.default()
+            agent = (svc.agents.find(a["agent"]) if a.get("agent")
+                     else (default_agent and svc.agents.find(default_agent)) or svc.agents.default())
             if not agent:
                 raise Invalid(f"agent '{a['agent']}' not found; use list_agents")
             imgs: list[str] = []
@@ -349,8 +351,8 @@ class Assistant:
                 latest = next((m for m in reversed(svc.conversations.get(conv_id)["messages"])
                                if m["role"] == "user"), None)
                 imgs = list((latest or {}).get("images") or [])
-            run = svc.run_manager.enqueue(str(a["task"]), agent, trigger="chat", start_url=a.get("start_url") or None,
-                                          images=imgs)
+            run = svc.run_manager.enqueue(str(a["task"]), agent, trigger="telegram" if default_agent == TELEGRAM_AGENT else "chat",
+                                          start_url=a.get("start_url") or None, images=imgs)
             await events.put({"type": "run_started", "run_id": run["id"]})
             return json.dumps({"run_id": run["id"], "status": "queued", "agent": agent["name"],
                                "note": "The user can watch it live on the Runs page."}), {"run_id": run["id"]}
@@ -623,7 +625,7 @@ class Assistant:
     async def converse(self, conv_id: str, content: str, thinking: bool | None = None,
                        effort: str | None = None, images: list[str] | None = None,
                        can_send_images: bool = False, workdir: str | None = None, mode: str | None = None,
-                       can_approve: bool = False) -> AsyncIterator[dict]:
+                       can_approve: bool = False, agent: str | None = None) -> AsyncIterator[dict]:
         svc = self.svc
         if not svc.conversations.exists(conv_id):
             raise NotFound(f"conversation {conv_id} not found")
@@ -643,7 +645,7 @@ class Assistant:
             svc.conversations.rename(conv_id, content.strip().replace("\n", " ")[:60] or (svc.uploads.label(images) if images else "Chat"))
 
         events: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir, mode, can_approve))
+        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir, mode, can_approve, agent))
         try:
             while True:
                 ev = await events.get()
@@ -667,7 +669,7 @@ class Assistant:
 
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,
                     can_send_images: bool = False, workdir: str | None = None, mode: str = "auto",
-                    can_approve: bool = False) -> None:
+                    can_approve: bool = False, agent: str | None = None) -> None:
         svc = self.svc
         tools = self.tool_specs(can_send_images)
         if mode == "plan":          # don't even offer tools that cannot run in Plan mode
@@ -726,7 +728,7 @@ class Assistant:
                         text, ok = refusal, False
                     else:
                         try:
-                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode)
+                            text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode, agent)
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
                     tmsg = svc.conversations.append(conv_id, "tool", text, tool_call_id=c.id,

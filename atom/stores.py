@@ -25,6 +25,7 @@ class Conflict(ValueError):
 # =============================================================================== agents
 THINKING = ("inherit", "off", "auto", "on")
 EFFORT = ("inherit", "low", "medium", "xhigh")
+TELEGRAM_AGENT = "Telegram Agent"
 MEM_SCOPE = ("none", "global", "agent")
 STATE_MAX = 2000                  # characters of per-agent state
 
@@ -130,6 +131,21 @@ class AgentStore:
             return self._out(r)
         return self.create({"name": "General web agent", "description": "Default browsing agent with all tools.",
                             "memory_scope": "agent"}, is_default=True)
+
+    def ensure_telegram(self, data_dir: Path) -> dict:
+        """The general-purpose agent behind the Telegram bot, with its own gitignored folder under data/."""
+        root = data_dir / "telegram_bot"
+        for sub in ("images", "memory", "scratchnotes"):
+            (root / sub).mkdir(parents=True, exist_ok=True)
+        r = self.find(TELEGRAM_AGENT)
+        if r:
+            return r
+        return self.create({"name": TELEGRAM_AGENT, "workdir": str(root), "memory_scope": "agent",
+                            "description": "General-purpose agent for tasks started from the Telegram bot.",
+                            "instructions": ("You work for the owner via Telegram. Your working folder is data/telegram_bot: "
+                                             "save generated or downloaded images in images/, durable notes in memory/ and "
+                                             "temporary working notes in scratchnotes/. Keep final answers short and "
+                                             "readable on a phone.")})
 
     def create(self, d: dict, *, is_default: bool = False) -> dict:
         c = self._clean(d)

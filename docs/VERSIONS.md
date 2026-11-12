@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.11.0 | 2026-11-12 | **Telegram Agent**: tasks started from the Telegram bot now run under a dedicated general-purpose "Telegram Agent" (trigger `telegram`), so they show in Runs and can be filtered via the Agent dropdown. Its working folder `data/telegram_bot/` (gitignored with the rest of `data/`) has `images/`, `memory/` and `scratchnotes/`. |
 | 0.10.1 | 2026-11-11 | **Notification fix**: Settings → Notifications card with an Enable button (permission is now requested from a click, not after async work), status diagnostics (denied / insecure origin / unsupported) and a test button; the notice also fires when the tab is hidden, not just unfocused. |
 | 0.10.0 | 2026-11-11 | **Long-task notification**: when a chat reply takes 45 s or more and finishes (not stopped, no error), Atom shows a system notification if the tab is unfocused (permission requested on first send), otherwise an in-app toast. |
 | 0.9.1 | 2026-11-11 | **Security hardening**: the API now refuses requests whose `Host` is not this machine (blocks DNS rebinding) and state-changing requests from another site's `Origin` (403). Extra hosts via `--host` or `ATOM_ALLOWED_HOSTS`. httpx request logging is pinned to WARNING so a Telegram bot token in a URL can never reach logs. |
