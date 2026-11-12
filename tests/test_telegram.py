@@ -353,3 +353,17 @@ async def test_chat_turns_are_recorded_as_runs(svc, fake):
         assert len(rows) == 1 and rows[0]["status"] == "done" and rows[0]["result"] == "hello there"
         assert rows[0]["steps"] == 1 and [s["kind"] for s in svc.runs.steps(rows[0]["id"])] == ["llm"]
     assert svc.runs.list(trigger="telegram_turn")[0][0]["agent_name"] == TELEGRAM_AGENT
+
+
+async def test_telegram_agent_has_everything_and_menu_edits_it(svc):
+    from atom.stores import TELEGRAM_AGENT
+    a = svc.agents.ensure_telegram(svc.settings.effective().data_dir, ["s1"])
+    assert a["max_steps"] == 120 and a["skills"] == ["s1"] and set(svc.agents.tool_names) <= set(a["tools"])
+    br = tg.Bridge("bot", {"allowed_user_ids": "42"}, svc, None)
+    br._apply_setting("t", "on")
+    br._apply_setting("e", "low")
+    br._apply_setting("m", "-50")
+    a = svc.agents.find(TELEGRAM_AGENT)
+    assert (a["thinking"], a["effort"], a["max_steps"]) == ("on", "low", 70)
+    text, extra = br._settings_msg()
+    assert "Max steps: 70" in text and extra["reply_markup"]["inline_keyboard"]

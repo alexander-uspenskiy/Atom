@@ -76,8 +76,8 @@ class Services:
 
     async def startup(self, *, scheduler: bool = True) -> None:
         self.agents.ensure_default()
-        self.agents.ensure_telegram(self.settings.effective().data_dir)
         await self.refresh_mcp()
+        self.agents.ensure_telegram(self.settings.effective().data_dir, [s["name"] for s in self.skills.list() if s["enabled"]])
         self.connectors.attach(self)            # start listeners (e.g. the Telegram bot)
         await self.run_manager.start()
         self.notifier.start()

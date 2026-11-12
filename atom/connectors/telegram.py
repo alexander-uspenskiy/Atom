@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from ..browser.session import ActionError
-from ..stores import TELEGRAM_AGENT, Conflict, Invalid, NotFound
+from ..stores import EFFORT, THINKING, TELEGRAM_AGENT, Conflict, Invalid, NotFound
 from ..tools import ToolContext, ToolOutput, ToolSpec
 from . import Connector, register
 
@@ -48,11 +48,15 @@ MAX_CAPTION = 1000
 MAX_LEN = 4000                      # Telegram's limit is 4096
 TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
 COMMANDS = [{"command": "new", "description": "Start a fresh conversation"},
+            {"command": "settings", "description": "Thinking, effort and step limit"},
+            {"command": "tools", "description": "Tools the Telegram Agent can use"},
+            {"command": "skills", "description": "Skills the Telegram Agent has"},
             {"command": "help", "description": "What I can do"}]
 HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs, or set up schedules. "
         "You can also send me a photo or a document (PDF, Word, Excel, CSV, Markdown, text file) with an optional caption "
         "to read, summarize or answer questions about it.\n\n"
-        "/new - start a fresh conversation\n/help - this message")
+        "/new - start a fresh conversation\n/settings - thinking, effort, step limit\n/tools - available tools\n"
+        "/skills - available skills\n/help - this message")
 
 
 def _slug(s: str) -> str:
@@ -291,6 +295,13 @@ class Bridge:
             cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
         if cmd in ("/start", "/help"):
             await self.api.send(cid, HELP)
+        elif cmd == "/settings":
+            text, extra = self._settings_msg()
+            await self.api.send(cid, text, **extra)
+        elif cmd == "/tools":
+            await self.api.send(cid, self._list_msg("Tools", self._agent()["tools"]))
+        elif cmd == "/skills":
+            await self.api.send(cid, self._list_msg("Skills", self._agent()["skills"]))
         elif cmd == "/new":
             r = self.svc.db.one("SELECT id FROM conversations WHERE title=?", (self._title(uid),))
             if r:
@@ -298,6 +309,38 @@ class Bridge:
             await self.api.send(cid, "Fresh conversation started.")
         else:
             await self.chat(cid, uid, text, images)
+
+    # ------------------------------------------------------------------ agent menu
+    def _agent(self) -> dict:
+        return self.svc.agents.ensure_telegram(self.svc.settings.effective().data_dir)
+
+    def _list_msg(self, what: str, names: list[str] | None) -> str:
+        if names is None:
+            return f"{what}: all available."
+        return f"{what} ({len(names)}):\n" + (", ".join(sorted(names)) or "none")
+
+    def _settings_msg(self) -> tuple[str, dict]:
+        a = self._agent()
+        steps = a["max_steps"] or self.svc.settings.effective().max_steps
+        mark = lambda cur, v: ("• " if cur == v else "") + v          # noqa: E731
+        kb = [[{"text": mark(a["thinking"], v), "callback_data": f"s:t:{v}"} for v in THINKING],
+              [{"text": mark(a["effort"], v), "callback_data": f"s:e:{v}"} for v in EFFORT],
+              [{"text": t, "callback_data": f"s:m:{d}"} for t, d in (("-50", -50), ("-10", -10), ("+10", 10), ("+50", 50))]]
+        return (f"Telegram Agent settings\nThinking: {a['thinking']}\nEffort: {a['effort']}\nMax steps: {steps}",
+                {"reply_markup": {"inline_keyboard": kb}})
+
+    def _apply_setting(self, kind: str, val: str) -> str:
+        a = self._agent()
+        if kind == "t":
+            self.svc.agents.update(a["id"], {"thinking": val})
+        elif kind == "e":
+            self.svc.agents.update(a["id"], {"effort": val})
+        elif kind == "m":
+            cur = a["max_steps"] or self.svc.settings.effective().max_steps
+            self.svc.agents.update(a["id"], {"max_steps": min(400, max(1, cur + int(val)))})
+        else:
+            raise Invalid("unknown setting")
+        return "Saved"
 
     @staticmethod
     def _file_ref(m: dict) -> tuple[str | None, str]:
@@ -328,7 +371,11 @@ class Bridge:
             typing = asyncio.create_task(self._typing(chat_id))
             final = ""
             try:
-                async for ev in self.svc.assistant.converse(conv, text, images=images, can_send_images=True,
+                ag = self._agent()
+                think = {"on": True, "off": False}.get(ag["thinking"])
+                eff = None if ag["effort"] == "inherit" else ag["effort"]
+                async for ev in self.svc.assistant.converse(conv, text, thinking=think, effort=eff, images=images,
+                                                           can_send_images=True,
                                                            agent=TELEGRAM_AGENT):
                     t = ev["type"]
                     if t == "message_end":
@@ -364,6 +411,15 @@ class Bridge:
             return
         kind, _, aid = (q.get("data") or "").partition(":")
         try:
+            if kind == "s":
+                _, k, val = (q.get("data") or "").split(":", 2)
+                note = self._apply_setting(k, val)
+                if msg.get("chat"):
+                    text, extra = self._settings_msg()
+                    await self.api.call("editMessageText", chat_id=msg["chat"]["id"], message_id=msg["message_id"],
+                                        text=text, **extra)
+                await self.api.call("answerCallbackQuery", callback_query_id=q["id"], text=note)
+                return
             if kind == "a":
                 res = await self.svc.executor.approve(aid)
             elif kind == "r":

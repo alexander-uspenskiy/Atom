@@ -109,7 +109,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 DIST = ROOT / "web" / "dist"
 
 

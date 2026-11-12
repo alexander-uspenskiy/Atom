@@ -132,15 +132,19 @@ class AgentStore:
         return self.create({"name": "General web agent", "description": "Default browsing agent with all tools.",
                             "memory_scope": "agent"}, is_default=True)
 
-    def ensure_telegram(self, data_dir: Path) -> dict:
+    def ensure_telegram(self, data_dir: Path, skill_names: list[str] | None = None) -> dict:
         """The general-purpose agent behind the Telegram bot, with its own gitignored folder under data/."""
         root = data_dir / "telegram_bot"
         for sub in ("images", "memory", "scratchnotes"):
             (root / sub).mkdir(parents=True, exist_ok=True)
+        tools = [t for t in self.tool_names]            # every tool, terminal and file tools included
         r = self.find(TELEGRAM_AGENT)
         if r:
+            if r["tools"] is None and not r["skills"] and r["max_steps"] is None:      # created by 0.11: widen once
+                return self.update(r["id"], {"tools": tools, "skills": list(skill_names or []), "max_steps": 120})
             return r
         return self.create({"name": TELEGRAM_AGENT, "workdir": str(root), "memory_scope": "agent",
+                            "tools": tools, "skills": list(skill_names or []), "max_steps": 120,
                             "description": "General-purpose agent for tasks started from the Telegram bot.",
                             "instructions": ("You work for the owner via Telegram. Your working folder is data/telegram_bot: "
                                              "save generated or downloaded images in images/, durable notes in memory/ and "
