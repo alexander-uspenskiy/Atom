@@ -1,14 +1,26 @@
 import { Link } from "react-router-dom";
-import { Calendar, MessageSquare, Play, Webhook } from "lucide-react";
+import { Bot, Calendar, MessageSquare, Play, Send, Webhook } from "lucide-react";
 import type { RunSummary } from "../api/types";
 import { StatusBadge } from "./ui/Badge";
 import { fmtDuration, fmtRelative, fmtTokens, truncate } from "../lib/format";
 
-const trigIcon = { manual: Play, schedule: Calendar, chat: MessageSquare, api: Webhook } as const;
+const trigIcon = { manual: Play, schedule: Calendar, chat: Bot, telegram: Bot, chat_turn: MessageSquare, telegram_turn: Send, api: Webhook } as const;
+
+/** Run types, as stored in `trigger`. One list so every page labels and filters them the same way. */
+export const RUN_TYPES: { value: string; label: string }[] = [
+  { value: "chat_turn", label: "Chat" },
+  { value: "telegram_turn", label: "Telegram chat" },
+  { value: "chat", label: "Agent (from chat)" },
+  { value: "telegram", label: "Agent (from Telegram)" },
+  { value: "schedule", label: "Scheduled" },
+  { value: "manual", label: "Manual" },
+  { value: "api", label: "API" },
+];
+export const runTypeLabel = (t?: string) => RUN_TYPES.find((x) => x.value === (t ?? "manual"))?.label ?? t ?? "Manual";
 
 export function TriggerIcon({ trigger }: { trigger?: string }) {
   const I = trigIcon[(trigger ?? "manual") as keyof typeof trigIcon] ?? Play;
-  return <I className="h-3.5 w-3.5 shrink-0 text-muted" aria-label={trigger ?? "manual"} />;
+  return <I className="h-3.5 w-3.5 shrink-0 text-muted" aria-label={runTypeLabel(trigger)} />;
 }
 
 /** One compact row for a run, used in recent-runs lists. */

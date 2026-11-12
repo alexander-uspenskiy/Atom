@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from .llm import LLMError
 from .scheduler import describe, normalize_trigger
+from .runs import new_run_id
 from .stores import TELEGRAM_AGENT, Conflict, Invalid, NotFound
 
 log = logging.getLogger(__name__)
@@ -162,6 +163,55 @@ def _est_msg(m: dict) -> int:
     else:
         n = len(c or "") / 3.5
     return int(n + len(json.dumps(m.get("tool_calls") or "")) / 3.5) + 8
+
+
+class TurnRun:
+    """Records one chat turn as a row in Runs (steps = model calls and tool calls), like an agent run."""
+
+    def __init__(self, svc: Any, task: str, agent: dict, trigger: str, think: bool, effort: str):
+        self.svc, self.idx, self.t0 = svc, 0, time.perf_counter()
+        self.tot = dict(steps=0, prompt_tokens=0, cached_tokens=0, processed_tokens=0, completion_tokens=0,
+                        llm_seconds=0.0, tool_seconds=0.0, wall_seconds=0.0)
+        self.id = new_run_id()
+        eff = svc.settings.effective()
+        svc.runs.create(self.id, task, agent=agent, trigger=trigger, schedule_id=None, config={"chat": True},
+                        thinking="think" if think else "off", effort=effort, run_dir=str(eff.runs_dir / self.id))
+        svc.runs.mark_running(self.id)
+        svc.bus.publish_global("run_started", run=svc.runs.get(self.id))
+
+    def llm(self, stats: dict, think: bool) -> None:
+        t = self.tot
+        for k in ("prompt_tokens", "cached_tokens", "processed_tokens", "completion_tokens"):
+            t[k] += stats.get(k) or 0
+        t["llm_seconds"] += stats.get("llm_seconds") or 0
+        t["steps"] += 1
+        self.svc.runs.add_step(self.id, self.idx, "llm", name="think" if think else "act", think=think,
+                               prompt_tokens=stats.get("prompt_tokens"), cached_tokens=stats.get("cached_tokens"),
+                               processed_tokens=stats.get("processed_tokens"),
+                               completion_tokens=stats.get("completion_tokens"), llm_seconds=stats.get("llm_seconds"),
+                               decode_tps=stats.get("decode_tps"))
+        self.idx += 1
+        self._live()
+
+    def tool(self, name: str, args: Any, result: str, ok: bool, seconds: float) -> None:
+        self.tot["tool_seconds"] += seconds
+        self.svc.runs.add_step(self.id, self.idx, "tool", name=name, args=args, result=result, ok=ok,
+                               tool_seconds=round(seconds, 2))
+        self.idx += 1
+        self._live()
+
+    def _live(self) -> None:
+        t = self.tot
+        self.svc.runs.db.execute(
+            "UPDATE runs SET steps=?, prompt_tokens=?, cached_tokens=?, processed_tokens=?, completion_tokens=?, "
+            "llm_seconds=?, tool_seconds=? WHERE id=?",
+            (t["steps"], t["prompt_tokens"], t["cached_tokens"], t["processed_tokens"], t["completion_tokens"],
+             t["llm_seconds"], t["tool_seconds"], self.id))
+
+    def finish(self, status: str, result: str | None, error: str | None) -> None:
+        self.tot["wall_seconds"] = time.perf_counter() - self.t0
+        self.svc.runs.finish(self.id, status, status == "done", result, error, self.tot)
+        self.svc.bus.publish_global("run_finished", run=self.svc.runs.get(self.id))
 
 
 class Assistant:
@@ -627,6 +677,7 @@ class Assistant:
                        can_send_images: bool = False, workdir: str | None = None, mode: str | None = None,
                        can_approve: bool = False, agent: str | None = None) -> AsyncIterator[dict]:
         svc = self.svc
+        telegram = agent == TELEGRAM_AGENT
         if not svc.conversations.exists(conv_id):
             raise NotFound(f"conversation {conv_id} not found")
         eff = svc.settings.effective()
@@ -645,17 +696,34 @@ class Assistant:
             svc.conversations.rename(conv_id, content.strip().replace("\n", " ")[:60] or (svc.uploads.label(images) if images else "Chat"))
 
         events: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir, mode, can_approve, agent))
+        rec_agent = (agent and svc.agents.find(agent)) or {"id": None, "name": "Chat assistant"}
+        try:
+            rec = TurnRun(svc, content.strip() or (svc.uploads.label(images) if images else "Chat"), rec_agent,
+                          "telegram_turn" if telegram else "chat_turn", think, effort)
+        except Exception:  # noqa: BLE001 - never let bookkeeping break the chat
+            log.exception("could not record chat turn")
+            rec = None
+        task = asyncio.create_task(self._loop(conv_id, think, effort, events, can_send_images, workdir, mode, can_approve,
+                                              agent, rec))
+        status, final, error = "stopped", None, "stopped by user"
         try:
             while True:
                 ev = await events.get()
                 if ev is None:
+                    status = "failed" if error and error != "stopped by user" else "done"
+                    error = None if status == "done" else error
                     break
+                if ev["type"] == "message_end":
+                    final = (ev["message"]["content"] or "").strip() or final
+                elif ev["type"] == "error":
+                    error = ev["detail"]
                 yield ev
         finally:
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+            if rec:
+                rec.finish(status, final, error if status != "done" else None)
 
     def tool_specs(self, can_send_images: bool = False, include_disabled: bool = False) -> list[dict]:
         """The tool specs the chat assistant can call in a session right now."""
@@ -669,7 +737,7 @@ class Assistant:
 
     async def _loop(self, conv_id: str, think: bool, effort: str, events: asyncio.Queue,
                     can_send_images: bool = False, workdir: str | None = None, mode: str = "auto",
-                    can_approve: bool = False, agent: str | None = None) -> None:
+                    can_approve: bool = False, agent: str | None = None, rec: TurnRun | None = None) -> None:
         svc = self.svc
         tools = self.tool_specs(can_send_images)
         if mode == "plan":          # don't even offer tools that cannot run in Plan mode
@@ -711,6 +779,8 @@ class Assistant:
                          "llm_seconds": round(res.seconds, 2), "decode_tps": round(res.decode_tps, 1),
                          "prefill_tps": round(res.prefill_tps, 1), "think": think}
                 await events.put({"type": "llm_end", **stats})
+                if rec:
+                    rec.llm(stats, think)
                 calls = [{"id": c.id, "name": c.name, "arguments": c.arguments} for c in res.tool_calls]
                 msg = svc.conversations.append(conv_id, "assistant", res.content, reasoning=res.reasoning or None,
                                                tool_calls=calls or None, stats=stats)
@@ -720,6 +790,7 @@ class Assistant:
                 for c in res.tool_calls:
                     await events.put({"type": "tool_call", "id": c.id, "name": c.name, "arguments": c.arguments})
                     ok, extras = True, {}
+                    t_tool = time.perf_counter()
                     if c.parse_error:
                         text, ok = f"Could not parse arguments: {c.parse_error}", False
                     elif c.name not in names:
@@ -731,6 +802,8 @@ class Assistant:
                             text, extras = await self._tool(c.name, c.arguments, conv_id, events, can_send_images, workdir, mode, agent)
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
+                    if rec:
+                        rec.tool(c.name, c.arguments, text, ok, time.perf_counter() - t_tool)
                     tmsg = svc.conversations.append(conv_id, "tool", text, tool_call_id=c.id,
                                                     action_id=extras.get("action_id"), run_id=extras.get("run_id"))
                     await events.put({"type": "tool_result", "id": c.id, "name": c.name, "ok": ok, "result": text[:4000],

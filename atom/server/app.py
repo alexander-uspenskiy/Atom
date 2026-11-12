@@ -109,7 +109,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -509,9 +509,10 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     # ------------------------------------------------------------------ runs
     @app.get("/api/runs")
     async def list_runs(request: Request, status: str | None = None, agent_id: str | None = None,
-                        schedule_id: str | None = None, q: str | None = None, limit: int = Query(50, le=200),
+                        schedule_id: str | None = None, trigger: str | None = None, q: str | None = None,
+                        limit: int = Query(50, le=200),
                         offset: int = 0):
-        items, total = svc_of(request).runs.list(status=status, agent_id=agent_id, schedule_id=schedule_id, q=q,
+        items, total = svc_of(request).runs.list(status=status, agent_id=agent_id, schedule_id=schedule_id, trigger=trigger, q=q,
                                                   limit=limit, offset=offset)
         return {"items": items, "total": total}
 

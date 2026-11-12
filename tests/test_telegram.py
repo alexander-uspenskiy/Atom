@@ -338,3 +338,18 @@ async def test_forward_only_when_job_asks_and_only_whitelisted(fake_tg):
     assert tg.TelegramConnector().validate(cfg) is None
     with pytest.raises(Exception):
         tg.TelegramConnector().validate({**cfg, "forward_user_ids": "abc"})
+
+
+async def test_chat_turns_are_recorded_as_runs(svc, fake):
+    from atom.stores import TELEGRAM_AGENT
+    svc.assistant = Assistant(svc)
+    svc.agents.ensure_telegram(svc.settings.effective().data_dir)
+    for agent, trig in ((None, "chat_turn"), (TELEGRAM_AGENT, "telegram_turn")):
+        cid = svc.conversations.create()["id"]
+        fake.push({"content": "hello there"})
+        async for _ in svc.assistant.converse(cid, "hi", agent=agent):
+            pass
+        rows, _ = svc.runs.list(trigger=trig)
+        assert len(rows) == 1 and rows[0]["status"] == "done" and rows[0]["result"] == "hello there"
+        assert rows[0]["steps"] == 1 and [s["kind"] for s in svc.runs.steps(rows[0]["id"])] == ["llm"]
+    assert svc.runs.list(trigger="telegram_turn")[0][0]["agent_name"] == TELEGRAM_AGENT

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { runTypeLabel } from "../components/RunRow";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowLeft, ArrowUp, Download, ExternalLink, Image as ImageIcon, Square, Timer, Wifi, WifiOff } from "lucide-react";
@@ -107,7 +108,7 @@ export default function RunPage() {
       }
       subtitle={
         <span>
-          {run.agent_name ?? "—"} · {run.trigger ?? "manual"} · <span className="font-mono">{run.id}</span>
+          {run.agent_name ?? "—"} · {runTypeLabel(run.trigger)} · <span className="font-mono">{run.id}</span>
           {run.thinking ? ` · thinking ${run.thinking}` : ""}{run.effort ? ` · effort ${run.effort}` : ""}
         </span>
       }

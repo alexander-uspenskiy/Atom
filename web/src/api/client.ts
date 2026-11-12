@@ -56,7 +56,7 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
   return s ? `?${s}` : "";
 }
 
-export interface RunFilters { status?: string; agent_id?: string; schedule_id?: string; q?: string; limit?: number; offset?: number }
+export interface RunFilters { status?: string; agent_id?: string; schedule_id?: string; trigger?: string; q?: string; limit?: number; offset?: number }
 export interface MemoryFilters { q?: string; scope?: string; pinned?: boolean; status?: string; limit?: number }
 
 /** Preview URL for a file the backend may show (images in the output folder, data/, project folders). */

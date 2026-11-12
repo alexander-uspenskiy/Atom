@@ -319,7 +319,7 @@ class RunStore:
         return r
 
     def list(self, *, status: str | None = None, agent_id: str | None = None, schedule_id: str | None = None,
-             q: str | None = None, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+             trigger: str | None = None, q: str | None = None, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
         where, params = ["1=1"], []
         if status:
             where.append("status=?")
@@ -330,6 +330,9 @@ class RunStore:
         if schedule_id:
             where.append("schedule_id=?")
             params.append(schedule_id)
+        if trigger:
+            where.append("trigger=?")
+            params.append(trigger)
         if q:
             where.append("(task LIKE ? OR result_json LIKE ?)")
             params += [f"%{q}%", f"%{q}%"]

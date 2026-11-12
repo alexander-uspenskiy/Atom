@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { History } from "lucide-react";
 import { useAgents, useRuns } from "../api/hooks";
 import { Page } from "../components/Page";
-import { TriggerIcon } from "../components/RunRow";
+import { RUN_TYPES, TriggerIcon, runTypeLabel } from "../components/RunRow";
 import { StatusBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -19,10 +19,11 @@ export default function RunsPage() {
   const [sp] = useSearchParams();
   const [status, setStatus] = useState(sp.get("status") ?? "");
   const [agent, setAgent] = useState("");
+  const [type, setType] = useState("");
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
   const agents = useAgents();
-  const runs = useRuns({ status, agent_id: agent, q, limit: PAGE, offset });
+  const runs = useRuns({ status, agent_id: agent, trigger: type, q, limit: PAGE, offset });
   const total = runs.data?.total ?? 0;
   const reset = <T,>(set: (v: T) => void) => (v: T) => {
     set(v);
@@ -37,6 +38,7 @@ export default function RunsPage() {
         <>
           <SearchInput className="w-52" value={q} onChange={reset(setQ)} placeholder="Search tasks…" />
           <Select aria-label="Status" className="w-32" value={status} onChange={(e) => reset(setStatus)(e.target.value)} options={STATUSES.map((s) => ({ value: s, label: s || "All statuses" }))} />
+          <Select aria-label="Type" className="w-44" value={type} onChange={(e) => reset(setType)(e.target.value)} options={[{ value: "", label: "All types" }, ...RUN_TYPES]} />
           <Select
             aria-label="Agent"
             className="w-40"
@@ -51,14 +53,15 @@ export default function RunsPage() {
         {runs.isLoading && <Loading />}
         {runs.error && !runs.data && <ErrorState error={runs.error} onRetry={() => void runs.refetch()} />}
         {runs.data && runs.data.items.length === 0 && (
-          <EmptyState icon={History} title="No runs found" hint={status || agent || q ? "Try clearing the filters." : "Runs appear here once an agent is started."} />
+          <EmptyState icon={History} title="No runs found" hint={status || agent || type || q ? "Try clearing the filters." : "Runs appear here once an agent is started."} />
         )}
         {runs.data && runs.data.items.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="border-b border-line bg-surface2/60 text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-1.5 font-medium">Task</th>
+                  <th className="px-2 py-1.5 font-medium">Type</th>
                   <th className="px-2 py-1.5 font-medium">Agent</th>
                   <th className="px-2 py-1.5 font-medium">Status</th>
                   <th className="px-2 py-1.5 text-right font-medium">Steps</th>
@@ -77,6 +80,7 @@ export default function RunsPage() {
                         <span className="truncate">{truncate(r.task, 100) || r.id}</span>
                       </Link>
                     </td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-muted">{runTypeLabel(r.trigger)}</td>
                     <td className="px-2 py-1.5 text-muted">{r.agent_name ?? "—"}</td>
                     <td className="px-2 py-1.5"><StatusBadge status={r.status} success={r.success} /></td>
                     <td className="px-2 py-1.5 text-right tabular-nums">{r.steps ?? 0}</td>
