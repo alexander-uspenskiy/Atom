@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -73,6 +74,12 @@ CREATE TABLE IF NOT EXISTS connectors (
   name TEXT PRIMARY KEY, type TEXT NOT NULL, config TEXT DEFAULT '{}', enabled INTEGER DEFAULT 1,
   created_at REAL, updated_at REAL
 );
+CREATE TABLE IF NOT EXISTS telegram_inbox (
+  id TEXT PRIMARY KEY, ts REAL, connector TEXT, chat_id INTEGER, user_id INTEGER, username TEXT, name TEXT,
+  kind TEXT DEFAULT 'text', text TEXT DEFAULT '', file_name TEXT DEFAULT '', uploads TEXT DEFAULT '[]',
+  status TEXT DEFAULT 'accepted', note TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS telegram_inbox_ts ON telegram_inbox(ts);
 CREATE TABLE IF NOT EXISTS variables (
   name TEXT PRIMARY KEY, value TEXT NOT NULL, secret INTEGER DEFAULT 0, description TEXT DEFAULT '',
   domains TEXT DEFAULT '[]', created_at REAL, updated_at REAL
@@ -112,8 +119,12 @@ class Database:
         with self.lock:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA synchronous=NORMAL")
+            fresh_inbox = not self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='telegram_inbox'").fetchone()
             self.conn.executescript(SCHEMA)
             self._migrate()
+            if fresh_inbox:
+                self._backfill_inbox()
 
     def _migrate(self) -> None:
         """Additive column migrations for databases created by older versions."""
@@ -134,6 +145,20 @@ class Database:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(schedules)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE schedules ADD COLUMN images TEXT")
+
+    def _backfill_inbox(self) -> None:
+        """One-time: seed the Telegram inbox from user messages already stored in the Telegram conversations."""
+        rows = self.conn.execute(
+            "SELECT m.id, m.content, m.images, m.created_at, c.title FROM messages m JOIN conversations c "
+            "ON c.id=m.conversation_id WHERE c.title LIKE 'Telegram/%' AND m.role='user'").fetchall()
+        for r in rows:
+            mt = re.match(r"Telegram/(.+?) (-?\d+)", r["title"] or "")
+            ups = jload(r["images"], []) if r["images"] else []
+            self.conn.execute(
+                "INSERT OR IGNORE INTO telegram_inbox (id,ts,connector,user_id,chat_id,kind,text,uploads,status) "
+                "VALUES (?,?,?,?,?,?,?,?,'accepted')",
+                (r["id"], r["created_at"], mt.group(1) if mt else "", int(mt.group(2)) if mt else None,
+                 int(mt.group(2)) if mt else None, "photo" if ups else "text", r["content"] or "", jdump(ups)))
 
     def execute(self, sql: str, params: Iterable = ()) -> sqlite3.Cursor:
         with self.lock:

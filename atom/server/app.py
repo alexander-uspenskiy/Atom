@@ -16,6 +16,7 @@ from .. import imagegen
 from .. import stats as stats_mod
 from ..assistant import Assistant
 from ..config import LLM_PROFILES, ROOT
+from ..db import jload
 from ..events import PING
 from ..llm import LLMError
 from ..scheduler import describe, normalize_trigger, preview
@@ -109,7 +110,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.13.4"
+VERSION = "0.14.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -649,6 +650,34 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     @app.post("/api/actions/{aid}/reject")
     async def reject_action(request: Request, aid: str):
         return await svc_of(request).executor.reject(aid)
+
+    # ------------------------------------------------------------------ telegram inbox
+    @app.get("/api/telegram/inbox")
+    async def telegram_inbox(request: Request, q: str = "", status: str = "", limit: int = Query(50, ge=1, le=200),
+                             offset: int = Query(0, ge=0)):
+        """Every message sent to the Telegram bot (newest first) with its attachments' previews."""
+        svc = svc_of(request)
+        where, params = [], []
+        if q.strip():
+            where.append("(text LIKE ? OR name LIKE ? OR username LIKE ? OR file_name LIKE ?)")
+            params += [f"%{q.strip()}%"] * 4
+        if status:
+            where.append("status=?")
+            params.append(status)
+        w = (" WHERE " + " AND ".join(where)) if where else ""
+        total = svc.db.one(f"SELECT COUNT(*) AS n FROM telegram_inbox{w}", params)["n"]
+        rows = svc.db.all(f"SELECT * FROM telegram_inbox{w} ORDER BY ts DESC LIMIT ? OFFSET ?", [*params, limit, offset])
+        items = []
+        for r in rows:
+            files = []
+            for uid in jload(r["uploads"], []):
+                try:
+                    files.append({**svc.uploads.info(uid), "url": f"/api/uploads/{uid}"})
+                except NotFound:
+                    files.append({"id": uid, "missing": True, "name": "", "kind": "image", "mime": "", "size": 0})
+            items.append({**{k: r[k] for k in ("id", "ts", "connector", "chat_id", "user_id", "username", "name", "kind",
+                                               "text", "file_name", "status", "note")}, "files": files})
+        return {"items": items, "total": total}
 
     # ------------------------------------------------------------------ image uploads
     @app.post("/api/uploads", status_code=201)

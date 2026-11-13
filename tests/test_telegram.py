@@ -205,6 +205,10 @@ async def test_bridge_photo_goes_to_assistant(svc, fake, fake_tg):
         convs = [c for c in svc.conversations.list() if c["title"] == "Telegram/bot 42"]
         msgs = svc.conversations.get(convs[0]["id"])["messages"]
         assert [m["images"] for m in msgs if m["role"] == "user"][0]
+        # every inbound message lands in the inbox, with its upload for the preview
+        rows = svc.db.all("SELECT * FROM telegram_inbox ORDER BY ts")
+        assert [r["kind"] for r in rows][:2] == ["photo", "document"] and rows[0]["text"] == "what is this?"
+        assert all(r["status"] == "accepted" and r["uploads"] != "[]" for r in rows[:2])
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

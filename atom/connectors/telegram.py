@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 
 from ..browser.session import ActionError
+from ..db import jdump, new_id
 from ..stores import EFFORT, THINKING, TELEGRAM_AGENT, Conflict, Invalid, NotFound
 from ..tools import ToolContext, ToolOutput, ToolSpec
 from . import Connector, register
@@ -263,12 +264,30 @@ class Bridge:
         r = self.svc.db.one("SELECT id FROM conversations WHERE title=?", (self._title(uid),))
         return r["id"] if r else self.svc.conversations.create(self._title(uid))["id"]
 
+    _KINDS = ("photo", "document", "voice", "video", "video_note", "audio", "sticker", "animation", "location", "contact")
+
+    def _log(self, m: dict, status: str, note: str = "", uploads: list[str] | None = None, fname: str = "") -> None:
+        """Record every inbound message (what was sent to the bot) for the dashboard's Telegram inbox; never raises."""
+        try:
+            chat, user = m.get("chat") or {}, m.get("from") or {}
+            kind = next((k for k in self._KINDS if m.get(k)), "text")
+            who = " ".join(x for x in (user.get("first_name"), user.get("last_name")) if x)
+            self.svc.db.execute(
+                "INSERT INTO telegram_inbox (id,ts,connector,chat_id,user_id,username,name,kind,text,file_name,uploads,status,note) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (new_id(), time.time(), self.name, chat.get("id"), user.get("id"), user.get("username") or "", who,
+                 kind, (m.get("text") or m.get("caption") or "")[:4000],
+                 fname or ((m.get("document") or {}).get("file_name") or ""), jdump(uploads or []), status, note[:500]))
+        except Exception:  # noqa: BLE001
+            log.exception("could not log inbound telegram message")
+
     async def on_message(self, m: dict) -> None:
         chat, user = m.get("chat") or {}, m.get("from") or {}
         if chat.get("type") != "private" or user.get("is_bot"):
             return
         uid, cid = user.get("id"), chat.get("id")
         if uid not in self.allowed:
+            self._log(m, "denied", "user not in Allowed user IDs")
             last = self.denied_at.get(uid, 0)
             if time.monotonic() - last > 60:                         # don't let strangers make the bot chatty
                 self.denied_at[uid] = time.monotonic()
@@ -285,14 +304,19 @@ class Bridge:
                     await self.api.call("sendChatAction", chat_id=cid, action="typing")
                 images = [(await asyncio.to_thread(self.svc.uploads.save, data, fname))["id"]]
             except (TelegramError, Invalid) as e:
-                await self.api.send(cid, f"I couldn't use that file: {e.args[0] if e.args else e}")
+                msg = e.args[0] if e.args else e
+                self._log(m, "error", f"could not use file: {msg}")
+                await self.api.send(cid, f"I couldn't use that file: {msg}")
                 return
         if not text and not images:
+            self._log(m, "unsupported", "not text, photo or a supported document")
             await self.api.send(cid, "I can read text messages, photos and documents (PDF, Word, Excel, CSV, Markdown, text).")
             return
         cmd = ""
         if not images:
             cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
+        self._log(m, "command" if cmd in ("/start", "/help", "/settings", "/tools", "/skills", "/new") else "accepted",
+                  cmd, images, fname)
         if cmd in ("/start", "/help"):
             await self.api.send(cid, HELP)
         elif cmd == "/settings":

@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.14.0 | 2026-11-13 | **Telegram inbox page**: every message sent to the bot (text, photos, documents, commands, unsupported types and messages from unauthorized users) is recorded and shown newest-first on the new Telegram page with image previews and document links, plus search and status filter. Messages already stored in Telegram conversations are backfilled once. |
 | 0.13.4 | 2026-11-12 | **Chat/Telegram runs now have a live activity log**: chat and Telegram turns only saved step rows, so the run page's log (which reads the run event stream) was empty. They now publish the same events as agent runs (model calls, tool calls with results, finish). Runs recorded before this version stay empty in the log; their steps remain visible. |
 | 0.13.3 | 2026-11-12 | Default **max images per run/chat turn** raised from 4 to 5. |
 | 0.13.2 | 2026-11-12 | **Image cap fix**: when the model asked for more `generate_image` calls in one reply than the per-turn cap (default 4), every call in the batch was refused and nothing rendered. Now the first calls up to the cap render and only the extra ones are refused. |

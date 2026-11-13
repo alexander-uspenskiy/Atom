@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { Loading } from "./components/ui/Spinner";
 import OverviewPage from "./pages/OverviewPage";
 import ChatPage from "./pages/ChatPage";
+import TelegramPage from "./pages/TelegramPage";
 import ImagesPage from "./pages/ImagesPage";
 import RunPage from "./pages/RunPage";
 import RunsPage from "./pages/RunsPage";
@@ -24,6 +25,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<OverviewPage />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="telegram" element={<TelegramPage />} />
         <Route path="images" element={<ImagesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="schedules" element={<SchedulesPage />} />

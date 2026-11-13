@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import {
   Activity, BarChart3, BookOpen, Bot, Brain, CalendarClock, History, Image as ImageIcon, LayoutDashboard, MessageSquare,
-  Monitor, Moon, ShieldCheck, Sun, Settings as SettingsIcon, Wrench, type LucideIcon,
+  Monitor, Moon, Send, ShieldCheck, Sun, Settings as SettingsIcon, Wrench, type LucideIcon,
 } from "lucide-react";
 import { useGlobalEvents, useStatus } from "../api/hooks";
 import { useTheme } from "../lib/theme";
@@ -12,6 +12,7 @@ interface NavDef { to: string; label: string; icon: LucideIcon; end?: boolean; b
 const NAV: NavDef[] = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/chat", label: "Chat", icon: MessageSquare },
+  { to: "/telegram", label: "Telegram", icon: Send },
   { to: "/images", label: "Images", icon: ImageIcon },
   { to: "/approvals", label: "Approvals", icon: ShieldCheck, badge: "approvals" },
   { to: "/runs", label: "Runs", icon: History, badge: "runs" },
