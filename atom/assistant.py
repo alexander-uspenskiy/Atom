@@ -179,8 +179,30 @@ class TurnRun:
         svc.runs.mark_running(self.id)
         svc.run_manager.turns.add(self.id)
         svc.bus.publish_global("run_started", run=svc.runs.get(self.id))
+        self.step = 0                      # LLM call counter, the "step" in events (as in agent runs)
+        self.think, self.effort = think, effort
+        self._emit("run_status", status="running")
 
-    def llm(self, stats: dict, think: bool) -> None:
+    def _emit(self, type: str, **data: Any) -> None:
+        """Publish to the run's event log (what the run page's live log reads); never break the chat."""
+        try:
+            self.svc.bus.publish_run(self.id, type, **data)
+        except Exception:  # noqa: BLE001
+            log.exception("could not publish run event")
+
+    def llm_start(self) -> None:
+        self.step += 1
+        self._emit("step_start", step=self.step, think=self.think, effort=self.effort if self.think else None)
+
+    def tool_start(self, call_id: str, name: str, args: Any) -> None:
+        self._emit("tool_start", step=self.step, call_id=call_id, name=name, arguments=args)
+
+    def llm(self, stats: dict, think: bool, content: str = "", calls: list | None = None) -> None:
+        self._emit("llm_end", step=self.step, prompt_tokens=stats.get("prompt_tokens"),
+                   cached_tokens=stats.get("cached_tokens"), processed_tokens=stats.get("processed_tokens"),
+                   completion_tokens=stats.get("completion_tokens"), llm_seconds=stats.get("llm_seconds"),
+                   decode_tps=stats.get("decode_tps"), prefill_tps=stats.get("prefill_tps"),
+                   content=content, tool_calls=calls or [])
         t = self.tot
         for k in ("prompt_tokens", "cached_tokens", "processed_tokens", "completion_tokens"):
             t[k] += stats.get(k) or 0
@@ -194,7 +216,9 @@ class TurnRun:
         self.idx += 1
         self._live()
 
-    def tool(self, name: str, args: Any, result: str, ok: bool, seconds: float) -> None:
+    def tool(self, name: str, args: Any, result: str, ok: bool, seconds: float, call_id: str | None = None) -> None:
+        self._emit("tool_end", step=self.step, call_id=call_id, name=name, ok=ok, result=result[:2000],
+                   tool_seconds=round(seconds, 2))
         self.tot["tool_seconds"] += seconds
         self.svc.runs.add_step(self.id, self.idx, "tool", name=name, args=args, result=result, ok=ok,
                                tool_seconds=round(seconds, 2))
@@ -213,6 +237,8 @@ class TurnRun:
         self.tot["wall_seconds"] = time.perf_counter() - self.t0
         self.svc.run_manager.turns.discard(self.id)
         self.svc.runs.finish(self.id, status, status == "done", result, error, self.tot)
+        self._emit("run_finished", status=status, success=status == "done", result=result, error=error,
+                   totals={k: (round(v, 2) if isinstance(v, float) else v) for k, v in self.tot.items()})
         self.svc.bus.publish_global("run_finished", run=self.svc.runs.get(self.id))
 
 
@@ -764,6 +790,8 @@ class Assistant:
                 acc = {"content": "", "reasoning": ""}
                 last = time.monotonic()
                 await events.put({"type": "message_start"})
+                if rec:
+                    rec.llm_start()
 
                 async def flush() -> None:
                     for ch in ("reasoning", "content"):
@@ -789,9 +817,9 @@ class Assistant:
                          "llm_seconds": round(res.seconds, 2), "decode_tps": round(res.decode_tps, 1),
                          "prefill_tps": round(res.prefill_tps, 1), "think": think}
                 await events.put({"type": "llm_end", **stats})
-                if rec:
-                    rec.llm(stats, think)
                 calls = [{"id": c.id, "name": c.name, "arguments": c.arguments} for c in res.tool_calls]
+                if rec:
+                    rec.llm(stats, think, res.content or "", calls)
                 msg = svc.conversations.append(conv_id, "assistant", res.content, reasoning=res.reasoning or None,
                                                tool_calls=calls or None, stats=stats)
                 await events.put({"type": "message_end", "message": msg})
@@ -801,6 +829,8 @@ class Assistant:
                     await events.put({"type": "tool_call", "id": c.id, "name": c.name, "arguments": c.arguments})
                     ok, extras = True, {}
                     t_tool = time.perf_counter()
+                    if rec:
+                        rec.tool_start(c.id, c.name, c.arguments)
                     if c.parse_error:
                         text, ok = f"Could not parse arguments: {c.parse_error}", False
                     elif c.name not in names:
@@ -814,7 +844,7 @@ class Assistant:
                         except (Invalid, NotFound, Conflict, KeyError, ValueError, TypeError) as e:
                             text, ok = f"Error: {e}", False
                     if rec:
-                        rec.tool(c.name, c.arguments, text, ok, time.perf_counter() - t_tool)
+                        rec.tool(c.name, c.arguments, text, ok, time.perf_counter() - t_tool, c.id)
                     tmsg = svc.conversations.append(conv_id, "tool", text, tool_call_id=c.id,
                                                     action_id=extras.get("action_id"), run_id=extras.get("run_id"))
                     await events.put({"type": "tool_result", "id": c.id, "name": c.name, "ok": ok, "result": text[:4000],
