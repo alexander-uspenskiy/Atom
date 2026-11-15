@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import {
-  Activity, BarChart3, BookOpen, Bot, Brain, CalendarClock, History, Image as ImageIcon, LayoutDashboard, MessageSquare,
+  Activity, BarChart3, BookOpen, Bot, Brain, CalendarClock, HeartPulse, History, Image as ImageIcon, LayoutDashboard, MessageSquare,
   Monitor, Moon, Send, ShieldCheck, Sun, Settings as SettingsIcon, Wrench, type LucideIcon,
 } from "lucide-react";
 import { useGlobalEvents, useStatus } from "../api/hooks";
@@ -13,6 +13,7 @@ const NAV: NavDef[] = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/chat", label: "Chat", icon: MessageSquare },
   { to: "/telegram", label: "Telegram", icon: Send },
+  { to: "/health", label: "Health", icon: HeartPulse },
   { to: "/images", label: "Images", icon: ImageIcon },
   { to: "/approvals", label: "Approvals", icon: ShieldCheck, badge: "approvals" },
   { to: "/runs", label: "Runs", icon: History, badge: "runs" },

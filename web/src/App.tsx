@@ -18,6 +18,7 @@ import SettingsPage from "./pages/SettingsPage";
 
 // Recharts is heavy: load the stats page on demand.
 const StatsPage = lazy(() => import("./pages/StatsPage"));
+const HealthPage = lazy(() => import("./pages/HealthPage"));
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route index element={<OverviewPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="telegram" element={<TelegramPage />} />
+        <Route path="health" element={<Suspense fallback={<Loading />}><HealthPage /></Suspense>} />
         <Route path="images" element={<ImagesPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="schedules" element={<SchedulesPage />} />
