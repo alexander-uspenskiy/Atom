@@ -110,7 +110,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.15.0"
+VERSION = "0.15.1"
 DIST = ROOT / "web" / "dist"
 
 
@@ -650,59 +650,6 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
     @app.post("/api/actions/{aid}/reject")
     async def reject_action(request: Request, aid: str):
         return await svc_of(request).executor.reject(aid)
-
-    # ------------------------------------------------------------------ apple health
-    @app.get("/api/health/summary")
-    async def health_summary(request: Request, days: int = Query(30, ge=1, le=365)):
-        return svc_of(request).health.summary(days)
-
-    @app.get("/api/health/token")
-    async def health_token(request: Request):
-        return {"token": svc_of(request).health.token()}
-
-    @app.post("/api/health/token/rotate")
-    async def health_token_rotate(request: Request):
-        return {"token": svc_of(request).health.rotate_token()}
-
-    @app.post("/api/health/ingest")
-    async def health_ingest(request: Request, body: dict = Body(...)):
-        """Push from an iPhone Shortcut / export app: {"samples":[{type,value,unit?,date|start,source?}]}. Bearer token required."""
-        svc = svc_of(request)
-        auth = request.headers.get("authorization", "")
-        if not svc.health.check_token(auth[7:] if auth.lower().startswith("bearer ") else request.headers.get("x-atom-token", "")):
-            raise HTTPException(401, "missing or wrong token")
-        items = body.get("samples")
-        if not isinstance(items, list) or len(items) > 20000:
-            raise Invalid("body must be {\"samples\": [...]} with at most 20000 items")
-        return await asyncio.to_thread(svc.health.ingest, [i for i in items if isinstance(i, dict)])
-
-    @app.post("/api/health/import")
-    async def health_import(request: Request):
-        """Raw body = Apple Health export.zip or export.xml (Health app -> profile -> Export All Health Data)."""
-        import tempfile
-        svc = svc_of(request)
-        size = 0
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".health") as tmp:
-            try:
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > 8 * 1024**3:
-                        raise Invalid("file too large")
-                    tmp.write(chunk)
-            except BaseException:
-                Path(tmp.name).unlink(missing_ok=True)
-                raise
-        try:
-            if size == 0:
-                raise Invalid("empty upload")
-            try:
-                return await asyncio.to_thread(svc.health.import_export, Path(tmp.name))
-            except ValueError as e:
-                raise Invalid(str(e)) from e
-            except Exception as e:  # noqa: BLE001  (zip/xml parse errors)
-                raise Invalid(f"could not read the export: {type(e).__name__}: {e}") from e
-        finally:
-            Path(tmp.name).unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ telegram inbox
     @app.get("/api/telegram/inbox")

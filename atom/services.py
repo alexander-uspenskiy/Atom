@@ -8,7 +8,6 @@ from .agent import Agent
 from .config import Settings
 from .connectors import ConnectorManager
 from .db import Database
-from .health import HealthStore
 from .events import EventBus
 from .llm import LLM
 from .models import ModelManager
@@ -29,7 +28,6 @@ class Services:
         base = base_settings or Settings()
         self.db = Database(db_path or base.db_path)
         self.settings = SettingsStore(self.db, base)
-        self.health = HealthStore(self.db)
         eff = self.settings.effective()
         self.bus = EventBus(self.db)
         self.llm = llm or LLM(eff)

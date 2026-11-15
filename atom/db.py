@@ -84,19 +84,6 @@ CREATE TABLE IF NOT EXISTS variables (
   name TEXT PRIMARY KEY, value TEXT NOT NULL, secret INTEGER DEFAULT 0, description TEXT DEFAULT '',
   domains TEXT DEFAULT '[]', created_at REAL, updated_at REAL
 );
-CREATE TABLE IF NOT EXISTS health_daily (
-  day TEXT NOT NULL, type TEXT NOT NULL, source TEXT NOT NULL, value REAL NOT NULL, unit TEXT DEFAULT '',
-  updated_at REAL, PRIMARY KEY (day, type, source)
-);
-CREATE TABLE IF NOT EXISTS health_points (
-  source TEXT NOT NULL, type TEXT NOT NULL, ts REAL NOT NULL, day TEXT NOT NULL, value REAL NOT NULL, unit TEXT DEFAULT '',
-  PRIMARY KEY (source, type, ts)
-);
-CREATE INDEX IF NOT EXISTS health_points_type ON health_points(type, ts);
-CREATE TABLE IF NOT EXISTS health_workouts (
-  source TEXT NOT NULL, kind TEXT NOT NULL, start_ts REAL NOT NULL, end_ts REAL, day TEXT NOT NULL,
-  minutes REAL DEFAULT 0, kcal REAL DEFAULT 0, km REAL DEFAULT 0, PRIMARY KEY (source, kind, start_ts)
-);
 """
 
 
