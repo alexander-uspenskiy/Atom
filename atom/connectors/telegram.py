@@ -47,17 +47,22 @@ DOC_MIMES = {"application/pdf", "text/markdown", "text/x-markdown", "text/plain"
 DOC_EXTS = (".pdf", ".md", ".markdown", ".txt", ".csv", ".tsv", ".docx", ".xlsx")
 MAX_CAPTION = 1000
 MAX_LEN = 4000                      # Telegram's limit is 4096
+AGENT_CMD_RE = re.compile(r"^/agent(?:@\w+)?(?:\s+|$)", re.I)      # not /agents
 TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{30,}$")
 COMMANDS = [{"command": "new", "description": "Start a fresh conversation"},
             {"command": "settings", "description": "Thinking, effort and step limit"},
             {"command": "tools", "description": "Tools the Telegram Agent can use"},
             {"command": "skills", "description": "Skills the Telegram Agent has"},
+            {"command": "agents", "description": "List agents you can run with /agent"},
+            {"command": "agent", "description": "Run a named agent: /agent Name task"},
             {"command": "help", "description": "What I can do"}]
 HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs, or set up schedules. "
         "You can also send me a photo or a document (PDF, Word, Excel, CSV, Markdown, text file) with an optional caption "
         "to read, summarize or answer questions about it.\n\n"
         "/new - start a fresh conversation\n/settings - thinking, effort, step limit\n/tools - available tools\n"
-        "/skills - available skills\n/help - this message")
+        "/skills - available skills\n/agents - agents you can run\n"
+        "/agent Name task - run that agent on the task (photos and files are passed along; with no /agent, "
+        "I just chat)\n/help - this message")
 
 
 def _slug(s: str) -> str:
@@ -315,9 +320,15 @@ class Bridge:
         cmd = ""
         if not images:
             cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
-        self._log(m, "command" if cmd in ("/start", "/help", "/settings", "/tools", "/skills", "/new") else "accepted",
-                  cmd, images, fname)
-        if cmd in ("/start", "/help"):
+        run_agent = AGENT_CMD_RE.match(text)             # /agent works with attachments too (caption = "/agent Name task")
+        self._log(m, "command" if cmd in ("/start", "/help", "/settings", "/tools", "/skills", "/agents", "/new") else "accepted",
+                  "/agent" if run_agent else cmd, images, fname)
+        if run_agent:
+            await self.run_named_agent(cid, text[run_agent.end():].strip(), images)
+        elif cmd == "/agents":
+            names = [a["name"] for a in self.svc.agents.list()]
+            await self.api.send(cid, "Agents (run with /agent Name task):\n" + "\n".join(names))
+        elif cmd in ("/start", "/help"):
             await self.api.send(cid, HELP)
         elif cmd == "/settings":
             text, extra = self._settings_msg()
@@ -380,6 +391,55 @@ class Bridge:
         if mime in DOC_MIMES or name.lower().endswith(DOC_EXTS):
             return doc.get("file_id"), name or "document"
         return None, ""
+
+    def _match_agent(self, rest: str) -> tuple[dict | None, str]:
+        """Longest agent name that starts `rest` (case-insensitive, whole words) -> (agent, remaining task)."""
+        low = rest.lower()
+        best = None
+        for a in self.svc.agents.list():
+            n = a["name"].lower()
+            if low == n or low.startswith(n + " ") or low.startswith(n + "\n"):
+                if best is None or len(n) > len(best["name"]):
+                    best = a
+        return (best, rest[len(best["name"]):].strip()) if best else (None, rest)
+
+    async def run_named_agent(self, chat_id: int, rest: str, images: list[str]) -> None:
+        """`/agent Name task`: run exactly that agent (no default agent), then send its result back here."""
+        agent, task = self._match_agent(rest)
+        if not agent:
+            await self.api.send(chat_id, "No agent with that name. Use /agent Name task. /agents lists them.")
+            return
+        task = task or ("Process the attached files." if images else "")
+        if not task:
+            await self.api.send(chat_id, f"What should {agent['name']} do? /agent {agent['name']} task")
+            return
+        try:
+            if self.svc.uploads.needs_vision(images) and not await self.svc.llm.vision():
+                raise Invalid("The model server has no vision projector loaded, so it cannot read images or scanned PDFs.")
+            run = self.svc.run_manager.enqueue(task, agent, trigger="telegram", images=images)
+        except (Invalid, NotFound) as e:
+            await self.api.send(chat_id, f"Error: {e.args[0] if e.args else e}")
+            return
+        await self.api.send(chat_id, f"Started {agent['name']} run {run['id']}. I'll send the result here.")
+        t = asyncio.create_task(self._relay_result(chat_id, agent["name"], run["id"]))
+        self.tasks.add(t)
+        t.add_done_callback(self.tasks.discard)
+
+    async def _relay_result(self, chat_id: int, agent_name: str, run_id: str) -> None:
+        try:
+            async for ev in self.svc.bus.stream_run(run_id, is_finished=False):
+                if ev.get("type") != "run_finished":
+                    continue
+                if ev.get("success"):
+                    text = f"{agent_name} finished:\n{(ev.get('result') or '').strip() or '(no result)'}"
+                else:
+                    text = f"{agent_name} run {ev.get('status')}: {ev.get('error') or ev.get('result') or 'no details'}"
+                await self.api.send(chat_id, text)
+                return
+        except (TelegramError, asyncio.CancelledError):
+            raise
+        except Exception as e:  # noqa: BLE001
+            await self.api.send(chat_id, f"{agent_name} run {run_id} finished but I couldn't read its result: {e}")
 
     async def _typing(self, chat_id: int) -> None:
         while True:
