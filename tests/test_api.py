@@ -729,3 +729,33 @@ def test_stop_adopts_external_server(client, svc, monkeypatch):
     monkeypatch.setattr("atom.models.os.kill", lambda pid, sig: killed.append(pid))
     assert client.post("/api/models/qwen/stop").status_code == 200 and killed == [4242]
     assert client.post("/api/models/arete/stop").status_code == 409
+
+
+def test_run_agent_by_name_and_chat_agent_field(client, fake, site):
+    make_local_agent(client, name="AtomHealth")
+    # by name, case-insensitive; default mode is require
+    fake.push(DONE("logged"))
+    r = client.post("/api/agents/run", json={"agent": "atomhealth", "task": "log it", "start_url": site.base + "/"})
+    assert r.status_code == 202 and r.json()["agent"] == "AtomHealth"
+    run = wait_run(client, r.json()["run_id"])
+    assert run["trigger"] == "api" and run["result"] == "logged"
+    # missing agent: require -> 404, prefer -> 200 with no run, bad mode / missing fields -> 422
+    assert client.post("/api/agents/run", json={"agent": "nope", "task": "x"}).status_code == 404
+    r = client.post("/api/agents/run", json={"agent": "nope", "task": "x", "agent_mode": "prefer"})
+    assert r.status_code == 200 and r.json() == {"agent": None, "fallback": "not_found", "run_id": None}
+    assert client.post("/api/agents/run", json={"agent": "AtomHealth", "task": "x", "agent_mode": "maybe"}).status_code == 422
+    assert client.post("/api/agents/run", json={"task": "x"}).status_code == 422
+    assert client.post("/api/agents/run", json={"agent": "AtomHealth"}).status_code == 422
+
+    # chat: agent present -> JSON 202 with run id (no SSE); missing + prefer -> normal chat with fallback header
+    conv = client.post("/api/conversations", json={}).json()
+    fake.push(DONE("from chat"))
+    r = client.post(f"/api/conversations/{conv['id']}/messages", json={"content": "go", "agent": "AtomHealth"})
+    assert r.status_code == 202 and r.json()["agent"] == "AtomHealth"
+    assert wait_run(client, r.json()["run_id"])["trigger"] == "api"
+    fake.push({"content": "plain reply"})
+    with client.stream("POST", f"/api/conversations/{conv['id']}/messages", json={"content": "hi", "agent": "Ghost"}) as resp:
+        assert resp.status_code == 200 and resp.headers["x-atom-agent-fallback"] == "not_found"
+        assert "plain reply" in "".join(resp.iter_text())
+    r = client.post(f"/api/conversations/{conv['id']}/messages", json={"content": "x", "agent": "Ghost", "agent_mode": "require"})
+    assert r.status_code == 404

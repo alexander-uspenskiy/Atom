@@ -110,7 +110,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.15.1"
+VERSION = "0.16.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -507,6 +507,43 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                                       overrides=body.get("overrides") or {}, images=images)
         return {"run_id": run["id"]}
 
+    AGENT_MODES = ("prefer", "require")
+
+    async def start_named_agent(svc, name: str, mode: str, task: str, images: list, *, overrides=None, start_url=None):
+        """Resolve an agent by name in code (never by the model) and queue a run.
+
+        Returns the 202 body, or None when mode is "prefer" and no such agent exists (the caller falls back).
+        """
+        if mode not in AGENT_MODES:
+            raise Invalid(f"agent_mode must be one of {list(AGENT_MODES)}")
+        agent = svc.agents.find(name)
+        if not agent:
+            if mode == "require":
+                raise NotFound(f"agent '{name}' not found")
+            return None
+        if svc.uploads.needs_vision(images) and not await svc.llm.vision():
+            raise Invalid("The model server has no vision projector loaded (start llama-server with --mmproj), "
+                          "so it cannot read images or scanned PDFs.")
+        run = svc.run_manager.enqueue(task, agent, trigger="api", start_url=start_url or None,
+                                      overrides=overrides or {}, images=images)
+        return {"agent": agent["name"], "agent_id": agent["id"], "run_id": run["id"]}
+
+    @app.post("/api/agents/run", status_code=202)
+    async def run_agent_by_name(request: Request, body: dict = Body(...)):
+        svc = svc_of(request)
+        task = (body.get("task") or "").strip()
+        if not task:
+            raise Invalid("task is required")
+        name = (body.get("agent") or "").strip()
+        if not name:
+            raise Invalid("agent is required")
+        out = await start_named_agent(svc, name, body.get("agent_mode") or "require", task,
+                                      svc.uploads.validate(body.get("images")),
+                                      overrides=body.get("overrides"), start_url=body.get("start_url"))
+        if out is None:      # prefer + missing: nothing to run, say so instead of failing
+            return JSONResponse({"agent": None, "fallback": "not_found", "run_id": None}, status_code=200)
+        return out
+
     # ------------------------------------------------------------------ runs
     @app.get("/api/runs")
     async def list_runs(request: Request, status: str | None = None, agent_id: str | None = None,
@@ -832,8 +869,18 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         workdir = (proj or {}).get("folder") or (body.get("workdir") or "").strip() or None   # a project's folder wins
         if body.get("mode") not in (None, "auto", "manual", "plan"):
             raise Invalid("mode must be auto, manual or plan")
-        return sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images,
+        agent_name = (body.get("agent") or "").strip()
+        headers = {}
+        if agent_name:
+            out = await start_named_agent(svc, agent_name, body.get("agent_mode") or "prefer",
+                                          content or "Process the attached files.", images)
+            if out:            # an agent took it: JSON with the run id instead of the chat SSE stream
+                return JSONResponse(out, status_code=202)
+            headers["X-Atom-Agent-Fallback"] = "not_found"     # prefer + missing: handled as normal chat
+        resp = sse_response(svc.assistant.converse(cid, content, body.get("thinking"), body.get("effort"), images,
                                                   workdir=workdir, mode=body.get("mode"), can_approve=True), request)
+        resp.headers.update(headers)
+        return resp
 
     @app.post("/api/chat/approvals/{call_id}")
     async def decide_approval(request: Request, call_id: str, body: dict = Body(...)):

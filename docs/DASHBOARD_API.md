@@ -72,6 +72,8 @@ Model profiles, each a separate llama-server (`ops/llama-server.sh <profile>`).
 - `GET|PUT|DELETE /api/agents/{id}` (default agent cannot be deleted → 409)
 - `GET /api/tools` → `[{"name": "click", "description": "...", "side_effect": false}]`
 - `POST /api/agents/{id}/run` body `{"task": "...", "start_url": null, "overrides": {"thinking": "on", "effort": "low", "max_steps": 10}, "images": ["<upload id>"]}` → `{"run_id": "..."}` (HTTP 202). `images` is optional; the agent sees them with the task (422 if the model server has no vision projector). Run summaries include `images: [ids]`.
+- `POST /api/agents/run` body `{"agent": "<name>", "task": "...", "images": [], "overrides": {}, "start_url": null, "agent_mode": "require"|"prefer"}` → `{"agent", "agent_id", "run_id"}` (202). Looks the agent up by name (case-insensitive) so clients need no id. `require` (default): 404 if missing. `prefer`: 200 `{"agent": null, "fallback": "not_found", "run_id": null}` and nothing runs. Runs have trigger `api`.
+- Chat messages take the same `agent` / `agent_mode` (default `prefer`): if the agent exists the response is that 202 JSON instead of the SSE stream; if not, normal chat runs and the response carries `X-Atom-Agent-Fallback: not_found`.
 
 ## Runs
 
