@@ -80,6 +80,11 @@ CREATE TABLE IF NOT EXISTS telegram_inbox (
   status TEXT DEFAULT 'accepted', note TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS telegram_inbox_ts ON telegram_inbox(ts);
+CREATE TABLE IF NOT EXISTS api_calls (
+  id TEXT PRIMARY KEY, ts REAL, method TEXT, path TEXT, query TEXT DEFAULT '', status INTEGER, ms REAL,
+  client TEXT DEFAULT '', ip TEXT DEFAULT '', run_id TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS api_calls_ts ON api_calls(ts);
 CREATE TABLE IF NOT EXISTS variables (
   name TEXT PRIMARY KEY, value TEXT NOT NULL, secret INTEGER DEFAULT 0, description TEXT DEFAULT '',
   domains TEXT DEFAULT '[]', created_at REAL, updated_at REAL

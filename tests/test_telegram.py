@@ -404,20 +404,24 @@ async def test_agent_command_runs_named_agent_and_relays_result(svc, fake, fake_
         assert any(t.startswith("Started AtomHealth run") for t in texts)
         rows, _ = svc.runs.list(trigger="telegram")
         assert len(rows) == 1 and rows[0]["agent_name"] == "AtomHealth" and rows[0]["task"] == "log my lunch"
-        # unknown name, missing task and /agents: replies only, nothing runs
+        # no known name -> the Telegram Agent runs the whole text; missing task and /agents reply only
+        fake.push({"calls": [("done", {"evidence": "e", "result": "default ran", "success": True})]})
         fake_tg.push_message(42, "/agent Ghost do it")
+        await until(lambda: any("default ran" in p["text"] for p in fake_tg.sent()))
+        rows, _ = svc.runs.list(trigger="telegram")
+        assert {r["agent_name"] for r in rows} == {"AtomHealth", "Telegram Agent"}
+        assert next(r for r in rows if r["agent_name"] == "Telegram Agent")["task"] == "Ghost do it"
         fake_tg.push_message(42, "/agent AtomHealth")
         fake_tg.push_message(42, "/agents")
         await until(lambda: any(t.startswith("Agents (") for t in [p["text"] for p in fake_tg.sent()]))
         texts = [p["text"] for p in fake_tg.sent()]
-        assert any(t.startswith("No agent with that name") for t in texts)
         assert any(t.startswith("What should AtomHealth do?") for t in texts)
-        assert "AtomHealth" in texts[-1] and len(svc.runs.list(trigger="telegram")[0]) == 1
+        assert "AtomHealth" in texts[-1] and len(svc.runs.list(trigger="telegram")[0]) == 2
         # without /agent it is a plain chat turn: no agent run is created
         fake.push({"content": "just chatting"})
         fake_tg.push_message(42, "hello")
         await until(lambda: any(p["text"] == "just chatting" for p in fake_tg.sent()))
-        assert len(svc.runs.list(trigger="telegram")[0]) == 1
+        assert len(svc.runs.list(trigger="telegram")[0]) == 2
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

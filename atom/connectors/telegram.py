@@ -61,8 +61,8 @@ HELP = ("I'm Atom, your local web agent. Ask me to browse the web, check on runs
         "to read, summarize or answer questions about it.\n\n"
         "/new - start a fresh conversation\n/settings - thinking, effort, step limit\n/tools - available tools\n"
         "/skills - available skills\n/agents - agents you can run\n"
-        "/agent Name task - run that agent on the task (photos and files are passed along; with no /agent, "
-        "I just chat)\n/help - this message")
+        "/agent [Name] task - run that agent on the task (default: Telegram Agent; photos and files are "
+        "passed along; with no /agent, I just chat)\n/help - this message")
 
 
 def _slug(s: str) -> str:
@@ -406,9 +406,8 @@ class Bridge:
     async def run_named_agent(self, chat_id: int, rest: str, images: list[str]) -> None:
         """`/agent Name task`: run exactly that agent (no default agent), then send its result back here."""
         agent, task = self._match_agent(rest)
-        if not agent:
-            await self.api.send(chat_id, "No agent with that name. Use /agent Name task. /agents lists them.")
-            return
+        if not agent:                       # no (known) name: the default agent is the Telegram Agent
+            agent, task = self._agent(), rest
         task = task or ("Process the attached files." if images else "")
         if not task:
             await self.api.send(chat_id, f"What should {agent['name']} do? /agent {agent['name']} task")

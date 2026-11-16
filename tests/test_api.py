@@ -759,3 +759,14 @@ def test_run_agent_by_name_and_chat_agent_field(client, fake, site):
         assert "plain reply" in "".join(resp.iter_text())
     r = client.post(f"/api/conversations/{conv['id']}/messages", json={"content": "x", "agent": "Ghost", "agent_mode": "require"})
     assert r.status_code == 404
+
+
+def test_api_call_log(client):
+    client.get("/api/agents")                                           # external read: logged
+    client.get("/api/agents", headers={"Referer": "http://testserver/runs"})   # dashboard read: not logged
+    client.get("/api/status")                                           # polling endpoint: never logged
+    client.post("/api/agents/run", json={"agent": "nope", "task": "x", "agent_mode": "require"})
+    items = client.get("/api/calls").json()["items"]
+    assert [(c["method"], c["path"]) for c in items][:2] == [("POST", "/api/agents/run"), ("GET", "/api/agents")]
+    assert items[0]["status"] == 404 and items[1]["client"] == "external"
+    assert client.get("/api/calls?failed=true").json()["total"] == 1

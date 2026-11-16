@@ -5,6 +5,7 @@ import { Loading } from "./components/ui/Spinner";
 import OverviewPage from "./pages/OverviewPage";
 import ChatPage from "./pages/ChatPage";
 import TelegramPage from "./pages/TelegramPage";
+import CallsPage from "./pages/CallsPage";
 import ImagesPage from "./pages/ImagesPage";
 import RunPage from "./pages/RunPage";
 import RunsPage from "./pages/RunsPage";
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="agents" element={<AgentsPage />} />
         <Route path="schedules" element={<SchedulesPage />} />
         <Route path="runs" element={<RunsPage />} />
+        <Route path="calls" element={<CallsPage />} />
         <Route path="runs/:id" element={<RunPage />} />
         <Route path="memory" element={<MemoryPage />} />
         <Route path="skills" element={<SkillsPage />} />

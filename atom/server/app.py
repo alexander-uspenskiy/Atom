@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -16,7 +17,7 @@ from .. import imagegen
 from .. import stats as stats_mod
 from ..assistant import Assistant
 from ..config import LLM_PROFILES, ROOT
-from ..db import jload
+from ..db import jload, new_id
 from ..events import PING
 from ..llm import LLMError
 from ..scheduler import describe, normalize_trigger, preview
@@ -75,6 +76,63 @@ class LocalOnlyGuard:
         await self.app(scope, receive, send)
 
 
+class CallLogger:
+    """Record external API calls (metadata only: no headers, query values or bodies except a run_id from the response).
+
+    The dashboard's own GETs (they carry a same-origin Referer) and streaming/polling endpoints are not logged, so the
+    log shows what changed state plus whatever scripts, Shortcuts and bots called."""
+    SKIP = {"/api/status", "/api/events", "/api/calls"}
+    KEEP = 5000
+
+    def __init__(self, app):
+        self.app = app
+        self._n = 0
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not path.startswith("/api/") or path in self.SKIP or path.endswith("/events"):
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        method = scope["method"]
+        ref = headers.get("referer", "")
+        ui = bool(ref) and _hostname(ref) == _hostname(headers.get("host", ""))
+        if method in ("GET", "HEAD", "OPTIONS") and ui:
+            return await self.app(scope, receive, send)
+        client = "ui" if ui else ("token" if headers.get("authorization") else
+                                  ("telegram" if "telegram" in headers.get("user-agent", "").lower() else "external"))
+        seen: dict = {"status": 0, "run_id": ""}
+        t0 = time.perf_counter()
+
+        async def wrapped(message):
+            if message["type"] == "http.response.start":
+                seen["status"] = message["status"]
+            elif message["type"] == "http.response.body" and not seen["run_id"] and seen["status"] == 202:
+                m = re.search(rb'"run_id"\s*:\s*"([^"]{1,64})"', message.get("body", b"")[:4096])
+                if m:
+                    seen["run_id"] = m.group(1).decode("latin-1")
+            await send(message)
+
+        try:
+            await self.app(scope, receive, wrapped)
+        finally:
+            try:
+                db = scope["app"].state.svc.db
+                ip = (scope.get("client") or ("", 0))[0]
+                db.execute("INSERT INTO api_calls (id, ts, method, path, query, status, ms, client, ip, run_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (new_id(), time.time(), method, path[:300], _query_keys(scope.get("query_string", b"")),
+                            seen["status"] or 500, round((time.perf_counter() - t0) * 1000, 1), client, ip, seen["run_id"]))
+                self._n += 1
+                if self._n % 200 == 0:
+                    db.execute("DELETE FROM api_calls WHERE id NOT IN (SELECT id FROM api_calls ORDER BY ts DESC LIMIT ?)", (self.KEEP,))
+            except Exception:  # noqa: BLE001 - logging must never break a request
+                pass
+
+
+def _query_keys(qs: bytes) -> str:
+    """Parameter names only (values may hold search text or tokens)."""
+    return ",".join(sorted({p.split("=", 1)[0] for p in qs.decode("latin-1").split("&") if p}))[:200]
+
+
 class McpServerIn(BaseModel):
     command: str | None = None
     args: list[str] = []
@@ -110,7 +168,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.17.0"
+VERSION = "0.18.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -188,6 +246,7 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
                 await svc.shutdown()
 
     app = FastAPI(title="Atom", version=VERSION, lifespan=lifespan)
+    app.add_middleware(CallLogger)
     app.add_middleware(LocalOnlyGuard)
 
     # ------------------------------------------------------------------ errors
@@ -715,6 +774,29 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             items.append({**{k: r[k] for k in ("id", "ts", "connector", "chat_id", "user_id", "username", "name", "kind",
                                                "text", "file_name", "status", "note")}, "files": files})
         return {"items": items, "total": total}
+
+    # ------------------------------------------------------------------ API call log
+    @app.get("/api/calls")
+    async def list_calls(request: Request, q: str = "", method: str = "", client: str = "", failed: bool = False,
+                         limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+        """External API calls (newest first): method, path, parameter names, status, duration, caller, run id."""
+        svc = svc_of(request)
+        where, params = [], []
+        if q.strip():
+            where.append("(path LIKE ? OR run_id LIKE ?)")
+            params += [f"%{q.strip()}%"] * 2
+        if method:
+            where.append("method=?")
+            params.append(method.upper())
+        if client:
+            where.append("client=?")
+            params.append(client)
+        if failed:
+            where.append("status>=400")
+        w = (" WHERE " + " AND ".join(where)) if where else ""
+        total = svc.db.one(f"SELECT COUNT(*) AS n FROM api_calls{w}", params)["n"]
+        rows = svc.db.all(f"SELECT * FROM api_calls{w} ORDER BY ts DESC LIMIT ? OFFSET ?", [*params, limit, offset])
+        return {"items": [dict(r) for r in rows], "total": total}
 
     # ------------------------------------------------------------------ image uploads
     @app.post("/api/uploads", status_code=201)
