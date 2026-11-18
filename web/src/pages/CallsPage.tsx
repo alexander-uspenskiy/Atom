@@ -11,10 +11,11 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { cn } from "../lib/cn";
 import { fmtDateTime, fmtRelative } from "../lib/format";
 
-interface Call { id: string; ts: number; method: string; path: string; query: string; status: number; ms: number; client: string; ip: string; run_id: string }
+interface Call { id: string; ts: number; method: string; path: string; query: string; status: number; ms: number; client: string; ip: string; run_id: string; agent?: string | null; run_status?: string | null; run_error?: string | null; run_steps?: number | null; run_started?: number | null; run_finished?: number | null }
 interface Calls { items: Call[]; total: number; callers?: string[] }
 
 const PAGE = 50;
+const fmtRunTime = (sec: number) => (sec < 60 ? `${Math.max(0, Math.round(sec))} s` : `${Math.floor(sec / 60)} m ${Math.round(sec % 60)} s`);
 const METHODS = ["", "GET", "POST", "PUT", "DELETE"];
 const BASE_CLIENTS = ["external", "token", "telegram", "ui"];
 
@@ -65,9 +66,9 @@ export default function CallsPage() {
         )}
         {calls.data && calls.data.items.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[1000px] text-sm">
               <thead className="text-left text-xs text-muted">
-                <tr><th className="px-3 py-2">When</th><th className="px-3 py-2">Call</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Time</th><th className="px-3 py-2">Caller</th><th className="px-3 py-2">Run</th></tr>
+                <tr><th className="px-3 py-2">When</th><th className="px-3 py-2">Call</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Time</th><th className="px-3 py-2">Caller</th><th className="px-3 py-2">Agent</th><th className="px-3 py-2">Run</th><th className="px-3 py-2">Outcome</th></tr>
               </thead>
               <tbody>
                 {calls.data.items.map((c) => (
@@ -77,7 +78,11 @@ export default function CallsPage() {
                     <td className="px-3 py-2"><span className={cn("rounded px-1.5 py-0.5 text-xs", statusStyle(c.status))}>{c.status}</span></td>
                     <td className="whitespace-nowrap px-3 py-2 text-muted">{c.ms < 1000 ? `${Math.round(c.ms)} ms` : `${(c.ms / 1000).toFixed(1)} s`}</td>
                     <td className="px-3 py-2 text-muted">{c.client}{c.ip && c.client !== "ui" ? ` · ${c.ip}` : ""}</td>
+                    <td className="px-3 py-2">{c.agent ?? ""}</td>
                     <td className="px-3 py-2">{c.run_id && <Link className="text-accent hover:underline" to={`/runs/${c.run_id}`}>{c.run_id}</Link>}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-muted" title={c.run_error ?? undefined}>{c.run_status && <>
+                      <span className={cn("rounded px-1.5 py-0.5 text-xs", c.run_status === "done" ? "bg-green-500/15 text-green-600" : c.run_status === "failed" ? "bg-red-500/15 text-red-600" : "bg-line")}>{c.run_status}</span>
+                      {c.run_started ? ` ${fmtRunTime((c.run_finished ?? Date.now() / 1000) - c.run_started)}` : ""}{c.run_steps ? ` · ${c.run_steps} steps` : ""}</>}</td>
                   </tr>
                 ))}
               </tbody>

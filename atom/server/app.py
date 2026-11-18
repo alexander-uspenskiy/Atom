@@ -169,7 +169,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.19.0"
+VERSION = "0.20.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -796,7 +796,11 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
             where.append("status>=400")
         w = (" WHERE " + " AND ".join(where)) if where else ""
         total = svc.db.one(f"SELECT COUNT(*) AS n FROM api_calls{w}", params)["n"]
-        rows = svc.db.all(f"SELECT * FROM api_calls{w} ORDER BY ts DESC LIMIT ? OFFSET ?", [*params, limit, offset])
+        rows = svc.db.all(
+            "SELECT c.*, r.agent_name AS agent, r.status AS run_status, r.error AS run_error, r.steps AS run_steps,"
+            " r.started_at AS run_started, r.finished_at AS run_finished"
+            f" FROM (SELECT * FROM api_calls{w} ORDER BY ts DESC LIMIT ? OFFSET ?) c"
+            " LEFT JOIN runs r ON r.id=c.run_id AND c.run_id!='' ORDER BY c.ts DESC", [*params, limit, offset])
         callers = [r["client"] for r in svc.db.all("SELECT DISTINCT client FROM api_calls WHERE client!='' ORDER BY client")]
         return {"items": [dict(r) for r in rows], "total": total, "callers": callers}
 
