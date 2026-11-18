@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS telegram_inbox (
 CREATE INDEX IF NOT EXISTS telegram_inbox_ts ON telegram_inbox(ts);
 CREATE TABLE IF NOT EXISTS api_calls (
   id TEXT PRIMARY KEY, ts REAL, method TEXT, path TEXT, query TEXT DEFAULT '', status INTEGER, ms REAL,
-  client TEXT DEFAULT '', ip TEXT DEFAULT '', run_id TEXT DEFAULT ''
+  client TEXT DEFAULT '', ip TEXT DEFAULT '', run_id TEXT DEFAULT '', error TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS api_calls_ts ON api_calls(ts);
 CREATE TABLE IF NOT EXISTS variables (
@@ -133,6 +133,9 @@ class Database:
 
     def _migrate(self) -> None:
         """Additive column migrations for databases created by older versions."""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(api_calls)")}
+        if "error" not in cols:
+            self.conn.execute("ALTER TABLE api_calls ADD COLUMN error TEXT DEFAULT ''")
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(messages)")}
         if "images" not in cols:
             self.conn.execute("ALTER TABLE messages ADD COLUMN images TEXT")

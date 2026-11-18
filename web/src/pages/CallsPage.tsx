@@ -11,7 +11,7 @@ import { EmptyState, ErrorState, Loading } from "../components/ui/Spinner";
 import { cn } from "../lib/cn";
 import { fmtDateTime, fmtRelative } from "../lib/format";
 
-interface Call { id: string; ts: number; method: string; path: string; query: string; status: number; ms: number; client: string; ip: string; run_id: string; agent?: string | null; run_status?: string | null; run_error?: string | null; run_steps?: number | null; run_started?: number | null; run_finished?: number | null }
+interface Call { id: string; ts: number; method: string; path: string; query: string; status: number; ms: number; client: string; ip: string; run_id: string; error?: string; agent?: string | null; run_status?: string | null; run_error?: string | null; run_steps?: number | null; run_started?: number | null; run_finished?: number | null }
 interface Calls { items: Call[]; total: number; callers?: string[] }
 
 const PAGE = 50;
@@ -75,7 +75,7 @@ export default function CallsPage() {
                   <tr key={c.id} className="border-t border-line">
                     <td className="whitespace-nowrap px-3 py-2 text-muted" title={fmtDateTime(c.ts)}>{fmtRelative(c.ts)}</td>
                     <td className="px-3 py-2 font-mono text-xs"><span className="mr-2 font-semibold">{c.method}</span>{c.path}{c.query && <span className="text-muted">?{c.query}</span>}</td>
-                    <td className="px-3 py-2"><span className={cn("rounded px-1.5 py-0.5 text-xs", statusStyle(c.status))}>{c.status}</span></td>
+                    <td className="px-3 py-2"><span className={cn("rounded px-1.5 py-0.5 text-xs", statusStyle(c.status))}>{c.status}</span>{c.error && <div className="mt-1 max-w-[260px] text-xs text-muted">{c.error}</div>}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-muted">{c.ms < 1000 ? `${Math.round(c.ms)} ms` : `${(c.ms / 1000).toFixed(1)} s`}</td>
                     <td className="px-3 py-2 text-muted">{c.client}{c.ip && c.client !== "ui" ? ` · ${c.ip}` : ""}</td>
                     <td className="px-3 py-2">{c.agent ?? ""}</td>

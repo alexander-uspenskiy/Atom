@@ -101,7 +101,7 @@ class CallLogger:
         named = re.sub(r"[^\w .@/-]", "", headers.get("x-atom-client", "")).strip()[:40]
         client = "ui" if ui else (named or ("token" if headers.get("authorization") else
                                   ("telegram" if "telegram" in headers.get("user-agent", "").lower() else "external")))
-        seen: dict = {"status": 0, "run_id": ""}
+        seen: dict = {"status": 0, "run_id": "", "error": ""}
         t0 = time.perf_counter()
 
         async def wrapped(message):
@@ -111,6 +111,8 @@ class CallLogger:
                 m = re.search(rb'"run_id"\s*:\s*"([^"]{1,64})"', message.get("body", b"")[:4096])
                 if m:
                     seen["run_id"] = m.group(1).decode("latin-1")
+            elif message["type"] == "http.response.body" and seen["status"] >= 400 and not seen["error"]:
+                seen["error"] = _error_text(message.get("body", b""))
             await send(message)
 
         try:
@@ -119,14 +121,26 @@ class CallLogger:
             try:
                 db = scope["app"].state.svc.db
                 ip = (scope.get("client") or ("", 0))[0]
-                db.execute("INSERT INTO api_calls (id, ts, method, path, query, status, ms, client, ip, run_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                db.execute("INSERT INTO api_calls (id, ts, method, path, query, status, ms, client, ip, run_id, error) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (new_id(), time.time(), method, path[:300], _query_keys(scope.get("query_string", b"")),
-                            seen["status"] or 500, round((time.perf_counter() - t0) * 1000, 1), client, ip, seen["run_id"]))
+                            seen["status"] or 500, round((time.perf_counter() - t0) * 1000, 1), client, ip, seen["run_id"], seen["error"]))
                 self._n += 1
                 if self._n % 200 == 0:
                     db.execute("DELETE FROM api_calls WHERE id NOT IN (SELECT id FROM api_calls ORDER BY ts DESC LIMIT ?)", (self.KEEP,))
             except Exception:  # noqa: BLE001 - logging must never break a request
                 pass
+
+
+def _error_text(body: bytes) -> str:
+    """Short error message from a JSON error body ({"detail": ...}); for validation errors only field names and
+    messages, never the submitted values."""
+    try:
+        d = json.loads(body[:8192]).get("detail")
+    except Exception:  # noqa: BLE001
+        return ""
+    if isinstance(d, list):
+        d = "; ".join(f"{'.'.join(str(x) for x in i.get('loc', [])[1:])}: {i.get('msg', '')}" for i in d[:3] if isinstance(i, dict))
+    return d[:200] if isinstance(d, str) else ""
 
 
 def _query_keys(qs: bytes) -> str:
@@ -169,7 +183,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.20.0"
+VERSION = "0.20.1"
 DIST = ROOT / "web" / "dist"
 
 
