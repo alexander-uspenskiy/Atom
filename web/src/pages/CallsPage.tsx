@@ -12,11 +12,11 @@ import { cn } from "../lib/cn";
 import { fmtDateTime, fmtRelative } from "../lib/format";
 
 interface Call { id: string; ts: number; method: string; path: string; query: string; status: number; ms: number; client: string; ip: string; run_id: string }
-interface Calls { items: Call[]; total: number }
+interface Calls { items: Call[]; total: number; callers?: string[] }
 
 const PAGE = 50;
 const METHODS = ["", "GET", "POST", "PUT", "DELETE"];
-const CLIENTS = ["", "external", "token", "telegram", "ui"];
+const BASE_CLIENTS = ["external", "token", "telegram", "ui"];
 
 async function fetchCalls(q: string, method: string, client: string, failed: boolean, offset: number): Promise<Calls> {
   const p = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
@@ -52,7 +52,7 @@ export default function CallsPage() {
         <>
           <SearchInput className="w-52" value={q} onChange={reset(setQ)} placeholder="Search path or run…" />
           <Select aria-label="Method" className="w-28" value={method} onChange={(e) => reset(setMethod)(e.target.value)} options={METHODS.map((m) => ({ value: m, label: m || "All methods" }))} />
-          <Select aria-label="Caller" className="w-32" value={client} onChange={(e) => reset(setClient)(e.target.value)} options={CLIENTS.map((c) => ({ value: c, label: c || "All callers" }))} />
+          <Select aria-label="Caller" className="w-32" value={client} onChange={(e) => reset(setClient)(e.target.value)} options={["", ...Array.from(new Set([...BASE_CLIENTS, ...(calls.data?.callers ?? [])]))].map((c) => ({ value: c, label: c || "All callers" }))} />
           <Button variant={failed ? "primary" : "ghost"} onClick={() => reset(setFailed)(!failed)}>Errors only</Button>
         </>
       }

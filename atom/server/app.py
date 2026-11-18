@@ -98,8 +98,9 @@ class CallLogger:
         ui = bool(ref) and _hostname(ref) == _hostname(headers.get("host", ""))
         if method in ("GET", "HEAD", "OPTIONS") and ui:
             return await self.app(scope, receive, send)
-        client = "ui" if ui else ("token" if headers.get("authorization") else
-                                  ("telegram" if "telegram" in headers.get("user-agent", "").lower() else "external"))
+        named = re.sub(r"[^\w .@/-]", "", headers.get("x-atom-client", "")).strip()[:40]
+        client = "ui" if ui else (named or ("token" if headers.get("authorization") else
+                                  ("telegram" if "telegram" in headers.get("user-agent", "").lower() else "external")))
         seen: dict = {"status": 0, "run_id": ""}
         t0 = time.perf_counter()
 
@@ -168,7 +169,7 @@ class VariableIn(BaseModel):
     domains: list[str] = []
 
 
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 DIST = ROOT / "web" / "dist"
 
 
@@ -796,7 +797,8 @@ def create_app(services: Services | None = None, *, start_scheduler: bool = True
         w = (" WHERE " + " AND ".join(where)) if where else ""
         total = svc.db.one(f"SELECT COUNT(*) AS n FROM api_calls{w}", params)["n"]
         rows = svc.db.all(f"SELECT * FROM api_calls{w} ORDER BY ts DESC LIMIT ? OFFSET ?", [*params, limit, offset])
-        return {"items": [dict(r) for r in rows], "total": total}
+        callers = [r["client"] for r in svc.db.all("SELECT DISTINCT client FROM api_calls WHERE client!='' ORDER BY client")]
+        return {"items": [dict(r) for r in rows], "total": total, "callers": callers}
 
     # ------------------------------------------------------------------ image uploads
     @app.post("/api/uploads", status_code=201)
