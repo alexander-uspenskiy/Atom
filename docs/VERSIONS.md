@@ -4,6 +4,7 @@ Newest first. The running version is shown at the bottom of the dashboard sideba
 
 | Version | Date | Highlights |
 |---|---|---|
+| 0.20.2 | 2026-11-17 | **Step-budget warning**: when an agent run has only ~12% of its steps left (min 5) it is told to stop exploring, do its final step (e.g. send the Telegram report) and call `done` listing what was not checked. Before, a run that hit the limit (3 scheduled Portal checker runs, 13/14/16 Nov) ended with no report. |
 | 0.20.1 | 2026-11-17 | **Error message on failed API calls**: calls that return 4xx/5xx now store the short `detail` message (max 200 chars; validation errors keep field names and messages only, never submitted values) and the API calls page shows it under the status code, e.g. `agent 'x' not found`. Older calls have none. |
 | 0.20.0 | 2026-11-17 | **Run details in API calls**: calls that start a run now show the agent called, the run outcome (queued/running/done/failed/stopped, with the error on hover), run duration and step count, read live from the run (`GET /api/calls` items gain `agent`, `run_status`, `run_error`, `run_steps`, `run_started`, `run_finished`). Answer text is not logged; open the run for it. |
 | 0.19.0 | 2026-11-17 | **Named callers in API calls**: a client can send `X-Atom-Client: <name>` (letters, digits, space, `.@/_-`, max 40 chars) and the API calls page shows that name as the Caller (e.g. `AtomHealth`) instead of `external`/`token`. The Caller filter lists every name seen. The header is only a label, not authentication. |

@@ -280,6 +280,8 @@ class Agent:
             recent: list[tuple[str, str, str]] = []
             consecutive_errors = stuck_hits = no_tool_nudges = find_streak = 0
             escalate = False
+            budget_warned = False
+            warn_at = max(cfg.max_steps - max(5, cfg.max_steps // 8), 1)   # last ~12% of steps (at least 5)
             action_log: list[str] = []
             look_idx: list[int] = []        # indexes in `messages` of screenshot messages still holding pixels
 
@@ -291,6 +293,12 @@ class Agent:
                     status, error = "budget", f"time budget ({s.max_wall_s}s) exhausted"
                     break
 
+                if not budget_warned and llm_n >= warn_at:
+                    budget_warned = True
+                    messages.append({"role": "user", "content":
+                                     f"Step budget warning: only {cfg.max_steps - llm_n} steps left. Stop exploring now: do any "
+                                     "required final step (e.g. send the report), then call done with what you have and list "
+                                     "what was NOT CHECKED. A run that hits the limit loses its result."})
                 # Thinking policy. 'auto' escalates only to recover; escalated calls use the spare slot so the
                 # agent slot's warm prefix survives. 'on' thinks every step on the agent slot (cache works within a mode).
                 think = cfg.thinking == "on" or (cfg.thinking == "auto" and escalate)
