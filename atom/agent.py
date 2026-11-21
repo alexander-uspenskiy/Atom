@@ -435,7 +435,7 @@ class Agent:
                     if out.terminal:
                         status, result, success, finished = "done", out.result, out.success, True
                         break
-                    if tc.name not in ("note", "recall", "use_skill", "remember", "update_memory", "set_state"):
+                    if tc.name not in ("note", "recall", "use_skill", "remember", "update_memory", "set_state", "done"):
                         await take_shot(llm_n, sidx)
                 if looks and not finished:
                     # Tool results are text-only; the screenshot rides in a user message right after them.

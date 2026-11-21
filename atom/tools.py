@@ -346,11 +346,50 @@ async def t_generate_image(ctx: ToolContext, a: dict) -> ToolOutput:
                       images=[img.preview_data_url()])
 
 
+# A single plate/portion read off a kitchen scale rarely exceeds this; bigger usually means the
+# model glued faint LCD "ghost" segments (e.g. "-18") onto the bright digits (119 g -> 1800 g).
+MAX_SCALE_ITEM_G = 1000
+
+
+def implausible_scale_weight(evidence: str, result: Any) -> str | None:
+    """If `result` is a meal JSON whose item weight came from a scale reading and looks implausibly
+    large, return a short message naming the item; otherwise None."""
+    ev = (evidence or "").lower()
+    if "display:" not in ev or "display: none" in ev:
+        return None
+    try:
+        data = json.loads(result) if isinstance(result, str) else result
+    except ValueError:
+        return None
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return None
+    for it in items:
+        try:
+            g = float(it.get("grams"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if g > MAX_SCALE_ITEM_G:
+            return f"{it.get('name', 'item')} = {g:g} g"
+    return None
+
+
 async def t_done(ctx: ToolContext, a: dict) -> ToolOutput:
     success = a.get("success", True)
     if isinstance(success, str):
         success = success.lower() == "true"
     result = a.get("result", "")
+    bad = implausible_scale_weight(a.get("evidence", ""), result)
+    if bad and not ctx.counters.get("weight_recheck"):
+        ctx.counters["weight_recheck"] = 1      # ask once; a second done() is accepted as is
+        return ToolOutput(
+            f"Not accepted yet: {bad} is implausible for one portion on a scale (over {MAX_SCALE_ITEM_G} g). "
+            "You almost certainly joined faint grey ghost segments (unlit '88', '-18', unit labels, usually LEFT of "
+            "the number) to the bright digits. Re-read the image: take only the brightest, largest digits that sit "
+            "next to the unit 'g'; a plate of a few pieces is usually 3 digits. Then call done again with the "
+            "corrected evidence and result (recompute kcal and macros for the new grams). If the big number is "
+            "truly the lit reading, call done again unchanged.",
+            ok=False)
     return ToolOutput("Task finished.", terminal=True, result=result, success=bool(success))
 
 
