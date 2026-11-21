@@ -244,8 +244,31 @@ def _frac(a: dict, key: str, default: float) -> float:
     return v
 
 
-def zoom_crop(data: bytes, x0: float, y0: float, x1: float, y1: float) -> bytes:
-    """Crop a fractional box out of an image and enlarge it (Lanczos) so small details become legible."""
+def _bright_only(im):
+    """Black-on-white image of only the brightest, whitest pixels: lit LCD digits stay, dim/tinted ghost segments,
+    reflections and background vanish. Whiteness = the smallest of R, G, B, so coloured pixels never count."""
+    from PIL import ImageChops
+    r, g, b = im.split()
+    m = ImageChops.darker(ImageChops.darker(r, g), b)
+    hist = m.histogram()
+    total = sum(hist)
+
+    def pct(q: float) -> int:
+        acc = 0
+        for v, n in enumerate(hist):
+            acc += n
+            if acc >= q * total:
+                return v
+        return 255
+
+    med, peak = pct(0.5), pct(0.995)
+    t = med + 0.8 * (peak - med)
+    return m.point(lambda p: 0 if p >= t else 255).convert("RGB")
+
+
+def zoom_crop(data: bytes, x0: float, y0: float, x1: float, y1: float, bright_only: bool = False) -> bytes:
+    """Crop a fractional box out of an image and enlarge it (Lanczos) so small details become legible.
+    bright_only=True then keeps just the brightest white pixels (black on white) to drop ghost segments."""
     import io
     from PIL import Image, ImageOps
     im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
@@ -257,6 +280,8 @@ def zoom_crop(data: bytes, x0: float, y0: float, x1: float, y1: float) -> bytes:
     k = min(ZOOM_MAX_UPSCALE, ZOOM_TARGET_PX / max(crop.size))
     if k > 1:
         crop = crop.resize((round(crop.width * k), round(crop.height * k)), Image.LANCZOS)
+    if bright_only:
+        crop = _bright_only(crop)
     out = io.BytesIO()
     crop.save(out, "JPEG", quality=92)
     return out.getvalue()
@@ -278,9 +303,12 @@ async def t_zoom_image(ctx: ToolContext, a: dict) -> ToolOutput:
     path = ctx.uploads.path(ctx.images[n - 1])
     if path.suffix[1:] not in ("jpg", "png", "webp", "gif"):
         raise ActionError(f"image {n} is not a picture")
-    jpg = await asyncio.to_thread(lambda: zoom_crop(path.read_bytes(), x0, y0, x1, y1))
+    bo = a.get("bright_only", False)
+    bo = bo.lower() == "true" if isinstance(bo, str) else bool(bo)
+    jpg = await asyncio.to_thread(lambda: zoom_crop(path.read_bytes(), x0, y0, x1, y1, bo))
     url = f"data:image/jpeg;base64,{base64.b64encode(jpg).decode()}"
-    return ToolOutput(f"Enlarged crop of image {n} (x {x0:g}-{x1:g}, y {y0:g}-{y1:g}) follows in the next message.",
+    return ToolOutput(f"Enlarged crop of image {n} (x {x0:g}-{x1:g}, y {y0:g}-{y1:g}"
+                      f"{', bright pixels only: black digits on white' if bo else ''}) follows in the next message.",
                       images=[url])
 
 
@@ -484,9 +512,12 @@ def build_tools() -> dict[str, ToolSpec]:
                  {"full_page": {"type": "boolean"}}, [], t_look),
         ToolSpec("zoom_image", "Crop a region of an image attached to the task and enlarge it so small details "
                                "(a scale or meter display, a label, small print) become readable. x0,y0,x1,y1 are "
-                               "fractions of the image (0 = left/top, 1 = right/bottom). Shown to you in the next message.",
+                               "fractions of the image (0 = left/top, 1 = right/bottom). bright_only=true keeps only the brightest "
+                               "white pixels (black on white), which removes dim ghost segments of an LCD. Shown to you "
+                               "in the next message.",
                  {"image": {"type": "integer"}, "x0": {"type": "number"}, "y0": {"type": "number"},
-                  "x1": {"type": "number"}, "y1": {"type": "number"}}, ["x0", "y0", "x1", "y1"], t_zoom_image),
+                  "x1": {"type": "number"}, "y1": {"type": "number"}, "bright_only": {"type": "boolean"}},
+                 ["x0", "y0", "x1", "y1"], t_zoom_image),
         ToolSpec("web_search", "Search the web; returns titles, URLs and snippets.", {"query": S}, ["query"],
                  t_web_search),
         ToolSpec("generate_image", "Create an image from a text description with a local model (takes ~10-60 s). "

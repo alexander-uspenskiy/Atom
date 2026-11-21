@@ -81,3 +81,18 @@ def test_zoom_tool_validates_and_returns_image(tmp_path):
             asyncio.run(t_zoom_image(ctx, bad))
     with pytest.raises(ActionError):
         asyncio.run(t_zoom_image(SimpleNamespace(uploads=None, images=[], counters={}), {"x0": 0, "y0": 0, "x1": 1, "y1": 1}))
+
+
+def test_bright_only_keeps_white_drops_dim_and_tinted():
+    import io
+    from PIL import Image, ImageDraw
+    from atom.tools import zoom_crop
+    im = Image.new("RGB", (200, 100), (60, 90, 120))                  # dark bluish screen
+    d = ImageDraw.Draw(im)
+    d.rectangle((20, 20, 40, 80), fill=(150, 130, 70))               # dim tinted ghost segment
+    d.rectangle((120, 20, 140, 80), fill=(255, 255, 255))            # lit digit
+    buf = io.BytesIO(); im.save(buf, "PNG")
+    out = Image.open(io.BytesIO(zoom_crop(buf.getvalue(), 0, 0, 1, 1, bright_only=True))).convert("L")
+    w, h = out.size
+    assert out.getpixel((int(w * 0.65), h // 2)) < 60                # lit digit -> black
+    assert out.getpixel((int(w * 0.15), h // 2)) > 200               # ghost -> white (gone)
