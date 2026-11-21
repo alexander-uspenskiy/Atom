@@ -206,7 +206,8 @@ class Agent:
         scopes, write_scope = self._scopes(cfg)
         ctx = ToolContext(session=session, llm=llm, settings=s, agent=cfg.agent, run_id=run_id,
                           skills=self.skills, memory=self.memory, actions=self.actions, agents=self.agents,
-                          workdir=cfg.workdir, skill_names=cfg.skill_names, memory_scopes=scopes, memory_write_scope=write_scope)
+                          workdir=cfg.workdir, skill_names=cfg.skill_names, memory_scopes=scopes, memory_write_scope=write_scope,
+                          images=list(cfg.images or []), uploads=self.uploads)
         t_start = time.perf_counter()
         sidx = 0                       # sequential row index for the steps table
         llm_n = 0                      # LLM call counter (the "step" in events)
@@ -435,7 +436,7 @@ class Agent:
                     if out.terminal:
                         status, result, success, finished = "done", out.result, out.success, True
                         break
-                    if tc.name not in ("note", "recall", "use_skill", "remember", "update_memory", "set_state", "done"):
+                    if tc.name not in ("note", "recall", "use_skill", "remember", "update_memory", "set_state", "done", "zoom_image"):
                         await take_shot(llm_n, sidx)
                 if looks and not finished:
                     # Tool results are text-only; the screenshot rides in a user message right after them.

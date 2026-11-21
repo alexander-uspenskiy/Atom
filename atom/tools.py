@@ -51,6 +51,8 @@ class ToolContext:
     memory_scopes: list[str] = field(default_factory=list)   # scopes this run may read
     memory_write_scope: str | None = None
     counters: dict[str, int] = field(default_factory=dict)   # per-run usage caps (e.g. images generated)
+    images: list[str] = field(default_factory=list)          # upload ids attached to this run (1-based in zoom_image)
+    uploads: Any = None           # UploadStore
 
 
 Handler = Callable[[ToolContext, dict[str, Any]], Awaitable[ToolOutput]]
@@ -228,6 +230,60 @@ async def t_look(ctx: ToolContext, a: dict) -> ToolOutput:
     return ToolOutput(f"Screenshot of {ctx.session.url} ({what}) follows in the next message.", images=[url])
 
 
+ZOOM_TARGET_PX = 1024          # longest side of the enlarged crop shown to the model
+ZOOM_MAX_UPSCALE = 6.0
+
+
+def _frac(a: dict, key: str, default: float) -> float:
+    try:
+        v = float(a.get(key, default))
+    except (TypeError, ValueError):
+        raise ActionError(f"{key} must be a number between 0 and 1") from None
+    if not 0.0 <= v <= 1.0:
+        raise ActionError(f"{key} must be between 0 and 1 (fraction of the image, 0 = left/top)")
+    return v
+
+
+def zoom_crop(data: bytes, x0: float, y0: float, x1: float, y1: float) -> bytes:
+    """Crop a fractional box out of an image and enlarge it (Lanczos) so small details become legible."""
+    import io
+    from PIL import Image, ImageOps
+    im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    w, h = im.size
+    box = (round(x0 * w), round(y0 * h), round(x1 * w), round(y1 * h))
+    if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+        raise ActionError("the region is too small: make it wider (x1 > x0, y1 > y0, at least a few pixels)")
+    crop = im.crop(box)
+    k = min(ZOOM_MAX_UPSCALE, ZOOM_TARGET_PX / max(crop.size))
+    if k > 1:
+        crop = crop.resize((round(crop.width * k), round(crop.height * k)), Image.LANCZOS)
+    out = io.BytesIO()
+    crop.save(out, "JPEG", quality=92)
+    return out.getvalue()
+
+
+async def t_zoom_image(ctx: ToolContext, a: dict) -> ToolOutput:
+    import base64
+    if ctx.uploads is None or not ctx.images:
+        raise ActionError("no image is attached to this run")
+    try:
+        n = int(a.get("image", 1))
+    except (TypeError, ValueError):
+        raise ActionError("image must be a number (1 = first attached image)") from None
+    if not 1 <= n <= len(ctx.images):
+        raise ActionError(f"image must be 1..{len(ctx.images)}")
+    x0, y0, x1, y1 = _frac(a, "x0", 0.0), _frac(a, "y0", 0.0), _frac(a, "x1", 1.0), _frac(a, "y1", 1.0)
+    if x1 <= x0 or y1 <= y0:
+        raise ActionError("need x1 > x0 and y1 > y0")
+    path = ctx.uploads.path(ctx.images[n - 1])
+    if path.suffix[1:] not in ("jpg", "png", "webp", "gif"):
+        raise ActionError(f"image {n} is not a picture")
+    jpg = await asyncio.to_thread(lambda: zoom_crop(path.read_bytes(), x0, y0, x1, y1))
+    url = f"data:image/jpeg;base64,{base64.b64encode(jpg).decode()}"
+    return ToolOutput(f"Enlarged crop of image {n} (x {x0:g}-{x1:g}, y {y0:g}-{y1:g}) follows in the next message.",
+                      images=[url])
+
+
 async def t_note(ctx: ToolContext, a: dict) -> ToolOutput:
     ctx.notes.append(str(a["text"])[:500])
     return ToolOutput("Noted.")
@@ -348,7 +404,7 @@ async def t_generate_image(ctx: ToolContext, a: dict) -> ToolOutput:
 
 # A single plate/portion read off a kitchen scale rarely exceeds this; bigger usually means the
 # model glued faint LCD "ghost" segments (e.g. "-18") onto the bright digits (119 g -> 1800 g).
-MAX_SCALE_ITEM_G = 1000
+MAX_SCALE_ITEM_G = 800
 
 
 def implausible_scale_weight(evidence: str, result: Any) -> str | None:
@@ -426,6 +482,11 @@ def build_tools() -> dict[str, ToolSpec]:
                          "the visible viewport; full_page=true captures the whole page (small details get blurry). "
                          "Costs ~1-2k tokens: prefer text tools when text is enough.",
                  {"full_page": {"type": "boolean"}}, [], t_look),
+        ToolSpec("zoom_image", "Crop a region of an image attached to the task and enlarge it so small details "
+                               "(a scale or meter display, a label, small print) become readable. x0,y0,x1,y1 are "
+                               "fractions of the image (0 = left/top, 1 = right/bottom). Shown to you in the next message.",
+                 {"image": {"type": "integer"}, "x0": {"type": "number"}, "y0": {"type": "number"},
+                  "x1": {"type": "number"}, "y1": {"type": "number"}}, ["x0", "y0", "x1", "y1"], t_zoom_image),
         ToolSpec("web_search", "Search the web; returns titles, URLs and snippets.", {"query": S}, ["query"],
                  t_web_search),
         ToolSpec("generate_image", "Create an image from a text description with a local model (takes ~10-60 s). "
